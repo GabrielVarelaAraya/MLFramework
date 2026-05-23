@@ -635,3 +635,4 @@ with tab_reg:
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.caption("ML Framework · Ciclo 1 — 2026 · Inteligencia Artificial")
+
