@@ -330,3 +330,83 @@ class analisisEDA():
 
     def __str__(self):
         return f'AnalisisDatosExploratorio shape={None if self.__df is None else self.__df.shape}'
+
+    # ── Sugerencia de tipo de problema ───────────────────────────────────────
+    @staticmethod
+    def detectar_tipo_problema(df, umbral_clases=20):
+        """
+        Heurística para sugerir si el dataset es de clasificación, regresión
+        o no supervisado, y cuál columna usar como target.
+
+        Retorna:
+            {
+                "tipo": "clasificacion" | "regresion" | "no_supervisado",
+                "target_sugerido": str | None,
+                "razon": str,
+                "candidatos": list[dict]  # otras columnas que podrían ser target
+            }
+        """
+        if df is None or df.empty:
+            return {"tipo": "no_supervisado", "target_sugerido": None,
+                    "razon": "DataFrame vacío.", "candidatos": []}
+
+        nombres_target = {"target", "label", "labels", "class", "classes", "clase",
+                          "y", "objetivo", "outcome", "diagnosis", "result",
+                          "resultado", "categoria", "category"}
+
+        candidatos = []
+        for col in df.columns:
+            serie = df[col].dropna()
+            if serie.empty:
+                continue
+            n_unicos = serie.nunique()
+            es_numerica = pd.api.types.is_numeric_dtype(serie)
+            es_categorica = (not es_numerica) or (n_unicos <= umbral_clases and serie.dtype.kind in "iub")
+            nombre_match = col.lower().strip() in nombres_target
+
+            candidatos.append({
+                "columna": col,
+                "n_unicos": int(n_unicos),
+                "es_numerica": bool(es_numerica),
+                "es_categorica_likely": bool(es_categorica),
+                "nombre_match": bool(nombre_match),
+                "posicion": list(df.columns).index(col),
+            })
+
+        # 1) Match por nombre típico de target
+        por_nombre = [c for c in candidatos if c["nombre_match"]]
+        if por_nombre:
+            elegido = por_nombre[0]
+            col = elegido["columna"]
+            if elegido["es_categorica_likely"]:
+                return {"tipo": "clasificacion", "target_sugerido": col,
+                        "razon": f"Columna '{col}' tiene nombre típico de target y "
+                                 f"{elegido['n_unicos']} valores únicos → clasificación.",
+                        "candidatos": candidatos}
+            return {"tipo": "regresion", "target_sugerido": col,
+                    "razon": f"Columna '{col}' tiene nombre típico de target y es "
+                             f"numérica continua → regresión.",
+                    "candidatos": candidatos}
+
+        # 2) Última columna como convención ML
+        if candidatos:
+            ultima = candidatos[-1]
+            col = ultima["columna"]
+            if not ultima["es_numerica"] or (ultima["n_unicos"] <= umbral_clases
+                                              and ultima["n_unicos"] >= 2):
+                tipo = "clasificacion"
+                razon = (f"La última columna '{col}' tiene {ultima['n_unicos']} valores "
+                         f"únicos → probable target categórico (clasificación).")
+                return {"tipo": tipo, "target_sugerido": col,
+                        "razon": razon, "candidatos": candidatos}
+            if ultima["es_numerica"] and ultima["n_unicos"] > umbral_clases:
+                return {"tipo": "regresion", "target_sugerido": col,
+                        "razon": f"La última columna '{col}' es numérica continua con "
+                                 f"{ultima['n_unicos']} valores únicos → regresión.",
+                        "candidatos": candidatos}
+
+        # 3) Sin candidato claro → no supervisado
+        return {"tipo": "no_supervisado", "target_sugerido": None,
+                "razon": "No se detectó una columna objetivo clara. Sugerencia: "
+                         "análisis exploratorio o clustering.",
+                "candidatos": candidatos}
