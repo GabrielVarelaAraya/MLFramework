@@ -1,208 +1,197 @@
 from sklearn.cluster import KMeans, AgglomerativeClustering
-from sklearn_extra.cluster import KMedoids
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from sklearn.metrics import silhouette_score
-from scipy.cluster.hierarchy import dendrogram, linkage, ward, average, single, complete, fcluster
+from sklearn.metrics import (silhouette_score, calinski_harabasz_score,
+                             davies_bouldin_score)
+from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
 from sklearn.manifold import TSNE
-import umap.umap_ as umap
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import pandas as pd
 
-from util_pca import ACPmain
+try:
+    from sklearn_extra.cluster import KMedoids
+    _HAS_KMEDOIDS = True
+except ImportError:
+    _HAS_KMEDOIDS = False
+
+try:
+    import umap.umap_ as umap
+    _HAS_UMAP = True
+except ImportError:
+    _HAS_UMAP = False
+
 from no_supervisado import NoSupervisado
+
 
 class Clustering(NoSupervisado):
 
     def __init__(self, df):
         super().__init__(df)
 
-    def ACP(self, n_componentes): 
-        p_acp = ACPmain(self.df,n_componentes) 
-        self.__ploteoGraficos(p_acp,1)
-        self.__ploteoGraficos(p_acp,2)
-        self.__ploteoGraficos(p_acp,3)
-        
-        
-    def __ploteoGraficos(self,p_acp, tipo): 
-        fig, ax = plt.subplots(nrows=1, ncols=1, figsize = (8,4), dpi = 200)
-        if tipo==1:
-            p_acp.plot_plano_principal()
-        elif tipo==2:
-            p_acp.plot_circulo()
-        elif tipo==3:
-            p_acp.plot_sobreposicion()     
-            plt.show()
-        
+    # ── API principal para Streamlit ─────────────────────────────────────────
+    def ejecutar(self, algoritmo, n_clusters=3, columnas=None,
+                 normalizar=True, random_state=42, **kwargs):
+        """Ejecuta un algoritmo de clustering y retorna resultados estructurados."""
+        df_num = self.df.select_dtypes(include='number').dropna()
+        if columnas is not None:
+            df_num = df_num[columnas]
+        if df_num.shape[1] < 2:
+            raise ValueError("Se necesitan al menos 2 columnas numéricas.")
 
-    def HAC(self):
-        p_hac = self.df
-        ward_res = ward(self.df)      
-        average_res = average(self.df)  
-        single_res  = single(self.df)    
-        complete_res = complete(self.df)
-        self.__ploteoGraficosHAC(p_hac, ward_res, 1)
-        self.__ploteoGraficosHAC(p_hac, average_res, 2)
-        self.__ploteoGraficosHAC(p_hac, single_res, 3)
-        self.__ploteoGraficosHAC(p_hac, complete_res, 4)
-        self.__clusterHAC(1)
-        self.__clusterHAC(2)
+        X = StandardScaler().fit_transform(df_num) if normalizar else df_num.values
+        X_proj = X  # espacio donde se calcularán las métricas
 
-    # Silhouette Score
-        metodos = ['ward', 'average', 'single', 'complete']
-        for metodo in metodos:
-            silhouette_scores = []
-            for k in range(2, 11):
-                modelo = AgglomerativeClustering(n_clusters=k, linkage=metodo, metric='euclidean')
-                etiquetas = modelo.fit_predict(self.df)
-                score = silhouette_score(self.df, etiquetas)
-                silhouette_scores.append(score)
-                
-            mejor_k = np.argmax(silhouette_scores) + 2
-            mejor_score = max(silhouette_scores)
-            plt.figure(figsize=(10, 6))
-            plt.plot(range(2, 11), silhouette_scores, marker='o')
-            plt.title(f'Silhouette Score ({metodo})')
-            plt.xlabel('Número de clusters')
-            plt.ylabel('Silhouette Score')
-            plt.grid(True)
-            plt.show()
-            self.agregar_modelo(f'HAC-{metodo}', mejor_k, mejor_score)
+        algoritmo_lower = algoritmo.lower()
+        if algoritmo_lower == "kmeans":
+            model = KMeans(n_clusters=n_clusters, random_state=random_state,
+                           n_init=kwargs.get("n_init", 10),
+                           max_iter=kwargs.get("max_iter", 500))
+            labels = model.fit_predict(X)
+            centros = model.cluster_centers_
 
-    def __ploteoGraficosHAC(self, p_hac, res, tipo):
-        fig, ax = plt.subplots(1, 1, figsize=(12, 8), dpi=200)
-        dendrogram(res, labels=self.df.index.tolist(), ax=ax)
+        elif algoritmo_lower == "kmedoids":
+            if not _HAS_KMEDOIDS:
+                raise ImportError("sklearn-extra no está instalado.")
+            model = KMedoids(n_clusters=n_clusters, metric=kwargs.get("metric", "cityblock"),
+                             random_state=random_state, max_iter=kwargs.get("max_iter", 500))
+            labels = model.fit_predict(X)
+            centros = model.cluster_centers_
 
-        mensajes = ['Metodo Ward:', 'Average:', 'Single:', 'Complete:']
-        print(mensajes[tipo - 1])
+        elif algoritmo_lower == "hac":
+            linkage_method = kwargs.get("linkage", "ward")
+            model = AgglomerativeClustering(n_clusters=n_clusters, linkage=linkage_method,
+                                            metric='euclidean' if linkage_method == 'ward' else kwargs.get("metric", "euclidean"))
+            labels = model.fit_predict(X)
+            centros = self._compute_centroids(X, labels, n_clusters)
 
-        if tipo == 4:
-            plt.savefig('dendrogram.png')
+        elif algoritmo_lower == "t-sne":
+            X_proj = TSNE(n_components=2, random_state=random_state).fit_transform(X)
+            model = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
+            labels = model.fit_predict(X_proj)
+            centros = self._compute_centroids(X, labels, n_clusters)
+
+        elif algoritmo_lower == "umap":
+            if not _HAS_UMAP:
+                raise ImportError("umap-learn no está instalado.")
+            reducer = umap.UMAP(n_components=2, n_neighbors=kwargs.get("n_neighbors", 15),
+                                random_state=random_state)
+            X_proj = reducer.fit_transform(X)
+            model = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
+            labels = model.fit_predict(X_proj)
+            centros = self._compute_centroids(X, labels, n_clusters)
+
+        else:
+            raise ValueError(f"Algoritmo desconocido: {algoritmo}")
+
+        metricas = self._calc_metricas(X_proj, labels)
+        self.agregar_modelo(algoritmo, n_clusters, metricas["silhouette"])
+
+        return {
+            "algoritmo": algoritmo,
+            "labels": labels,
+            "centros": centros,
+            "n_clusters": n_clusters,
+            "X": X,
+            "X_proj": X_proj,
+            "columnas": list(df_num.columns),
+            "metricas": metricas,
+            "df_original": df_num,
+        }
+
+    @staticmethod
+    def _compute_centroids(X, labels, n_clusters):
+        return np.array([X[labels == k].mean(axis=0) for k in range(n_clusters)])
+
+    @staticmethod
+    def _calc_metricas(X, labels):
+        unique = np.unique(labels)
+        if len(unique) < 2:
+            return {"silhouette": float('nan'), "calinski_harabasz": float('nan'),
+                    "davies_bouldin": float('nan')}
+        return {
+            "silhouette": silhouette_score(X, labels),
+            "calinski_harabasz": calinski_harabasz_score(X, labels),
+            "davies_bouldin": davies_bouldin_score(X, labels),
+        }
+
+    # ── Visualizaciones que retornan figuras ─────────────────────────────────
+    @staticmethod
+    def plot_proyeccion_2d_fig(X, labels, n_clusters, titulo="Proyección 2D",
+                                xlabel="PC1", ylabel="PC2"):
+        if X.shape[1] > 2:
+            pca = PCA(n_components=2)
+            coords = pca.fit_transform(X)
+            var_exp = pca.explained_variance_ratio_
+            xlabel = f"PC1 ({var_exp[0]*100:.1f}% var)"
+            ylabel = f"PC2 ({var_exp[1]*100:.1f}% var)"
+        else:
+            coords = X
+
+        fig, ax = plt.subplots(figsize=(7, 5), dpi=120)
+        palette = sns.color_palette("Set2", n_clusters)
+        for k in range(n_clusters):
+            mask = labels == k
+            ax.scatter(coords[mask, 0], coords[mask, 1], c=[palette[k]],
+                       label=f"Cluster {k}", alpha=0.75,
+                       edgecolors="white", linewidths=0.3, s=60)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.set_title(titulo)
+        ax.legend(framealpha=0.3)
+        plt.tight_layout()
+        return fig
+
+    @staticmethod
+    def plot_distribucion_clusters_fig(labels, n_clusters):
+        counts = pd.Series(labels).value_counts().sort_index()
+        fig, ax = plt.subplots(figsize=(7, 5), dpi=120)
+        bars = ax.bar([f"Cluster {i}" for i in counts.index], counts.values,
+                      color=sns.color_palette("Set2", n_clusters),
+                      edgecolor="white", linewidth=0.5)
+        for bar, val in zip(bars, counts.values):
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.3,
+                    str(val), ha="center", va="bottom", fontweight="bold")
+        ax.set_ylabel("Cantidad de puntos")
+        ax.set_title("Tamaño de cada cluster")
+        plt.tight_layout()
+        return fig
+
+    @staticmethod
+    def plot_silhouette_curve_fig(X, k_min=2, k_max=10, random_state=42):
+        ks = list(range(k_min, min(k_max + 1, len(X))))
+        scores = []
+        for k in ks:
+            lbl = KMeans(n_clusters=k, random_state=random_state, n_init=10).fit_predict(X)
+            scores.append(silhouette_score(X, lbl))
+        best_k = ks[int(np.argmax(scores))]
+
+        fig, ax = plt.subplots(figsize=(8, 4), dpi=120)
+        ax.plot(ks, scores, marker="o", color="#4f8bf9", linewidth=2.5, markersize=8)
+        ax.fill_between(ks, scores, alpha=0.15, color="#4f8bf9")
+        ax.axvline(best_k, color="#00c49a", linestyle="--", alpha=0.7,
+                   label=f"Mejor k = {best_k}")
+        ax.set_xlabel("Número de clusters (k)")
+        ax.set_ylabel("Silhouette Score")
+        ax.set_title("Silhouette Score vs k")
+        ax.legend()
+        ax.grid(True, alpha=0.2)
+        plt.tight_layout()
+        return fig, best_k, max(scores)
+
+    @staticmethod
+    def plot_dendrograma_fig(X, metodo="ward", etiquetas=None):
+        Z = linkage(X, method=metodo, metric='euclidean')
+        fig, ax = plt.subplots(figsize=(12, 6), dpi=120)
+        dendrogram(Z, labels=etiquetas, ax=ax, leaf_font_size=8)
+        ax.set_title(f"Dendrograma — método: {metodo}")
         ax.grid(False)
-        plt.show()
+        plt.tight_layout()
+        return fig
 
-    def __clusterHAC(self, tipo):
-        grupos = fcluster(linkage(self.df, method = 'ward', metric='euclidean'), 3, criterion = 'maxclust')
-        grupos = grupos-1 
-        centros = np.array(pd.concat([self.centroide(0, self.df, grupos), 
-                              self.centroide(1, self.df, grupos),
-                              self.centroide(2, self.df, grupos)]))
-        if tipo == 1:
-            self.bar_plot(centros, self.df.columns, scale=True)
-        plt.show()
-        
-
-# SECCION K-MEDIAS
-    def KMedia(self):
-        self.__ploteoGraficosKMEDIAS(1)
-        self.__ploteoGraficosKMEDIAS(2)
-
-    def __ploteoGraficosKMEDIAS(self, tipo):
-        if tipo == 1:
-            self.__ploteoKmedias()
-        elif tipo == 2:
-            self.__ploteoKmedoids()
-    
-    def __ploteoKmedias(self):
-        kmedias = KMeans(n_clusters=3, max_iter=500, n_init=150)
-        kmedias.fit(self.df)
-        pca = PCA(n_components=2)
-        componentes = pca.fit_transform(self.df)
-        fig, ax = plt.subplots(1,1, figsize = (15,8), dpi = 200)
-        colores = ['red', 'green', 'blue']
-        colores_puntos = [colores[label] for label in kmedias.predict(self.df)]
-        ax.scatter(componentes[:, 0], componentes[:, 1],c=colores_puntos)
-        ax.set_xlabel('componente 1')
-        ax.set_ylabel('componente 2')
-        ax.set_title('3 Cluster K-Medias')
-        ax.grid(False)
-        plt.show()
-
-        centros = np.array(kmedias.cluster_centers_)
-        self.radar_plot(centros, self.df.columns)
-        plt.show()
-
-    def __ploteoKmedoids(self):
-        kmedoids = KMedoids(n_clusters=3, max_iter=500, metric='cityblock')
-        kmedoids.fit(self.df)
-        pca = PCA(n_components=2)
-        componentes = pca.fit_transform(self.df)
-        fig, ax = plt.subplots(1,1, figsize = (15,8), dpi = 200)
-        colores = ['red', 'green', 'blue']
-        colores_puntos = [colores[label] for label in kmedoids.predict(self.df)]
-        ax.scatter(componentes[:, 0], componentes[:, 1],c=colores_puntos)
-        ax.set_xlabel('componente 1')
-        ax.set_ylabel('componente 2')
-        ax.set_title('3 Cluster K-Medoids')
-        ax.grid(False)
-        plt.show()
-
-        centros = np.array(kmedoids.cluster_centers_)
-        self.radar_plot(centros, self.df.columns)
-        plt.show()
-        
-# UMAP
-    def UMAP(self, n_componentes=2, n_neighbors=15):
-        if self.df is None or self.df.empty:
-            raise ValueError("El DataFrame está vacío o no ha sido definido.")
-        if self.df.isnull().any().any():
-            raise ValueError("El DataFrame contiene valores nulos.")
-
-    # Normalización previa
-        df_scaled = StandardScaler().fit_transform(self.df)
-
-    # UMAP
-        modelo_umap = umap.UMAP(n_components=n_componentes, n_neighbors=n_neighbors)
-        componentes = modelo_umap.fit_transform(df_scaled)
-
-    # Gráfico
-        fig, ax = plt.subplots(1, 1, figsize=(10, 6), dpi=200)
-        ax.scatter(componentes[:, 0], componentes[:, 1], alpha=0.7)
-        ax.set_xlabel('Componente 1')
-        ax.set_ylabel('Componente 2')
-        ax.set_title('UMAP')
-        ax.grid(False)
-        plt.show()
-
-        return componentes
-
-#T-SNE
-    def TSNE(self):
-        tsne = TSNE(n_components=2, random_state=42)
-        df_tsne = tsne.fit_transform(self.df)
-        
-        silhouette_scores = []
-        for n_clusters in range(2, 11):
-            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init='auto')
-            cluster_labels = kmeans.fit_predict(df_tsne)
-            silhouette_avg = silhouette_score(df_tsne, cluster_labels)
-            silhouette_scores.append(silhouette_avg)
-    
-        optimal_n_clusters = silhouette_scores.index(max(silhouette_scores)) + 2
-    
-        kmeans = KMeans(n_clusters=optimal_n_clusters, random_state=42, n_init='auto')
-        cluster_labels = kmeans.fit_predict(df_tsne)
-        
-        print('Silhouette Score:', max(silhouette_scores))
-        self.__plotTSNE(df_tsne, cluster_labels, silhouette_scores)
-        
-        self.agregar_modelo('TSNE', optimal_n_clusters, max(silhouette_scores))
-
-
-    def __plotTSNE(self, df, cluster_labels, silhouette_scores):
-        plt.plot(range(2, 11), silhouette_scores, marker='o')
-        plt.xlabel('Número de Clusters')
-        plt.ylabel('Puntuación de la Silueta')
-        plt.title('Silhouette Score')
-        plt.grid(True)
-        plt.show()
-        
-        plt.figure(figsize=(10, 6))
-        sns.scatterplot(x=df[:, 0], y=df[:, 1], hue=cluster_labels, palette='tab10', legend='full')
-        plt.title('TSNE')
-        plt.xlabel('TSNE Dimensión 1')
-        plt.ylabel('TSNE Dimensión 2')
-        plt.legend(title='Cluster')
-        plt.show()
+    def perfil_clusters(self, resultado):
+        """Retorna DataFrame con medias por cluster."""
+        df = resultado["df_original"].copy()
+        df["Cluster"] = resultado["labels"]
+        return df.groupby("Cluster").mean().round(3)

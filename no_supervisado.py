@@ -2,10 +2,11 @@ import pandas as pd
 
 from eda import analisisEDA
 
+
 class NoSupervisado(analisisEDA):
     def __init__(self, df):
         super().__init__(None, None)
-        self.df = df   # usa el setter de EDA
+        self.df = df
         self.__model = []
 
     @property
