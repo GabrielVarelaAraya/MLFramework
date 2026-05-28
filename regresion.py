@@ -2,175 +2,168 @@ from supervisado import Supervisado
 import numpy as np
 import pandas as pd
 import math
-import statistics
 
 from sklearn.linear_model import LinearRegression, Lasso, LassoCV, Ridge, RidgeCV
 from sklearn.svm import SVR
 from sklearn.tree import DecisionTreeRegressor
-from sklearn.ensemble import RandomForestRegressor
-from sklearn import ensemble
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
 
 class Regresion(Supervisado):
 
     def __init__(self, df):
         super().__init__(df)
 
-    def __Errores(self, y_true, y_predicted):
+    # ── Métricas ─────────────────────────────────────────────────────────────
+    @staticmethod
+    def _errores(y_true, y_pred):
         y_true = np.array(y_true)
-        y_predicted = np.array(y_predicted)
-        MSE0 = np.sum(np.square(y_true - y_predicted))
-        RMSE = math.sqrt(MSE0 / (len(y_true)))
-        MAE0 = np.sum(np.abs(y_true - y_predicted))
-        MAE = MAE0 / (len(y_true))
-        EN = np.sum(np.abs(y_true - y_predicted))
-        ED = np.sum(np.abs(y_true))
-        ER = EN / ED
-        error = pd.DataFrame()
-        nombres = ['RMSE', 'MAE', 'ER']
-        errores = [RMSE, MAE, ER]
-        error['Tipo'] = nombres
-        error['Error'] = errores
-        return error
-        
-    def __ResVarPred(self, VarPred):
-        Cuartil = statistics.quantiles(VarPred)
-        val_max = np.max(VarPred)
-        val_min = np.min(VarPred)
-        return {"Máximo": val_max,
-                        "Cuartiles": Cuartil,
-                        "Mínimo": val_min}
-        
-    
+        y_pred = np.array(y_pred)
+        rmse = math.sqrt(mean_squared_error(y_true, y_pred))
+        mae = mean_absolute_error(y_true, y_pred)
+        denom = np.sum(np.abs(y_true))
+        er = np.sum(np.abs(y_true - y_pred)) / denom if denom else float('nan')
+        r2 = r2_score(y_true, y_pred)
+        return {"RMSE": rmse, "MAE": mae, "ER": er, "R2": r2}
+
+    # ── Modelos individuales (X_train, X_test, y_train, y_test) ──────────────
     def RegLinSimp(self, X_train, X_test, y_train, y_test):
-        modelo_RegSimp= LinearRegression().fit(X_train.reshape(-1, 1), y_train)
-        print("Coeficiente w1:", modelo_RegSimp.coef_)
-        print("Coeficiente w0:", modelo_RegSimp.intercept_)
-        predicciones = modelo_RegSimp.predict(X=X_test)
-        print(predicciones[0:3,])
-        err_RegSimp = self.__Errores(y_test,predicciones)
-        return err_RegSimp
+        X_train_2d = np.asarray(X_train).reshape(-1, 1)
+        X_test_2d = np.asarray(X_test).reshape(-1, 1)
+        modelo = LinearRegression().fit(X_train_2d, y_train)
+        preds = modelo.predict(X_test_2d)
+        return modelo, preds, self._errores(y_test, preds)
 
     def RegLinMult(self, X_train, X_test, y_train, y_test):
-        modelo_RegMul = LinearRegression()
-        modelo_RegMul.fit(X=X_train, y=y_train)
-        predicciones = modelo_RegMul.predict(X=X_test)
-        print(predicciones[0:3,])
-        err_RegMul = self.__Errores(y_test,predicciones)
-        return err_RegMul
+        modelo = LinearRegression().fit(X_train, y_train)
+        preds = modelo.predict(X_test)
+        return modelo, preds, self._errores(y_test, preds)
 
-    def RegLasso(self, X_train, X_test, y_train, y_test):
-        modelo_lasso = Lasso(alpha=0.1)
-        modelo_lasso.fit(X=X_train, y=y_train)
-        predicciones = modelo_lasso.predict(X=X_test)
-        err_lasso = self.__Errores(y_test,predicciones)
-        df_coeficientes = pd.DataFrame({'predictor': X_train.columns,'coef': modelo_lasso.coef_.flatten()})
-        print(df_coeficientes)
-        return err_lasso
-    
+    def RegLasso(self, X_train, X_test, y_train, y_test, alpha=0.1):
+        modelo = Lasso(alpha=alpha, max_iter=5000).fit(X_train, y_train)
+        preds = modelo.predict(X_test)
+        return modelo, preds, self._errores(y_test, preds)
+
     def RegLassoCV(self, X_train, X_test, y_train, y_test):
-        modelo = LassoCV(alphas = np.logspace(-6, 6, 200), cv = 10)
-        modelo.fit(X=X_train, y=y_train)
-        modelo_lasso2 = Lasso(alpha=modelo.alpha_)
-        modelo_lasso2.fit(X=X_train, y=y_train)
-        predicciones = modelo_lasso2.predict(X_test)
-        err_lasso2 = self.__Errores(y_test,predicciones)
-        df_coeficientes = pd.DataFrame({'predictor': X_train.columns,'coef': modelo_lasso2.coef_.flatten()})
-        print(df_coeficientes)
-        return err_lasso2
-    
-    def ComparacionLasso(self, X_train, X_test, y_train, y_test):
-        err_lasso = self.RegLasso(X_train, X_test, y_train, y_test)
-        err_lasso2 = self.RegLassoCV(X_train, X_test, y_train, y_test)
-        comparacion = pd.DataFrame([err_lasso.Error, err_lasso2.Error])
-        comparacion.columns = ['RMSE','MAE','ER']
-        comparacion.index = ['Lasso', 'Lasso Óptimo']
-        return comparacion
-    
-    def RegRidge(self, X_train, X_test, y_train, y_test):
-        modelo_Ridge = Ridge(alpha = 1.0)
-        modelo_Ridge.fit(X=X_train,y=y_train)
-        predicciones = modelo_Ridge.predict(X_test)
-        err_Ridge = self.__Errores(y_test,predicciones)
-        df_coeficientes = pd.DataFrame({'predictor': X_train.columns,'coef': modelo_Ridge.coef_.flatten()})
-        print(df_coeficientes)
-        return err_Ridge
-    
+        cv = LassoCV(alphas=np.logspace(-6, 6, 200), cv=10, max_iter=5000).fit(X_train, y_train)
+        modelo = Lasso(alpha=cv.alpha_, max_iter=5000).fit(X_train, y_train)
+        preds = modelo.predict(X_test)
+        return modelo, preds, self._errores(y_test, preds)
+
+    def RegRidge(self, X_train, X_test, y_train, y_test, alpha=1.0):
+        modelo = Ridge(alpha=alpha).fit(X_train, y_train)
+        preds = modelo.predict(X_test)
+        return modelo, preds, self._errores(y_test, preds)
+
     def RegRidgeCV(self, X_train, X_test, y_train, y_test):
-        modelo = RidgeCV(alphas = np.logspace(-10, 2, 200), fit_intercept   = True, store_cv_values = True)
-        modelo.fit(X=X_train, y=y_train)
-        modelo_Ridge2 = Ridge(alpha = modelo.alpha_)
-        modelo_Ridge2.fit(X=X_train, y=y_train)
-        predicciones = modelo_Ridge2.predict(X=X_test)
-        err_Ridge2 = self.__Errores(y_test,predicciones)
-        df_coeficientes = pd.DataFrame({'predictor': X_train.columns,'coef': modelo_Ridge2.coef_.flatten()})
-        print(df_coeficientes)
-        return err_Ridge2
-    
-    def ComparacionRidge(self, X_train, X_test, y_train, y_test):
-        err_Ridge = self.RegRidge(X_train, X_test, y_train, y_test)
-        err_Ridge2 = self.RegRidgeCV(X_train, X_test, y_train, y_test)
-        comparacion = pd.DataFrame([err_Ridge.Error, err_Ridge2.Error])
-        comparacion.columns = ['RMSE','MAE','ER']
-        comparacion.index = ['Ridge', 'Ridge Óptimo']
-        return comparacion
-    
-    def SVM(self, X_train, X_test, y_train, y_test):
-        modelo1 = make_pipeline(StandardScaler(),SVR(kernel="rbf", C=100, epsilon=0.1))
-        modelo2 = make_pipeline(StandardScaler(),SVR(kernel="linear", C=100,  epsilon=0.1))
-        modelo3 = make_pipeline(StandardScaler(),SVR(kernel="poly", C=100,  degree=3, epsilon=0.1))
-        modelo1.fit(X=X_train, y=y_train)
-        modelo2.fit(X=X_train, y=y_train)
-        modelo3.fit(X=X_train, y=y_train)
-        predicciones1 = modelo1.predict(X=X_test)
-        predicciones2 = modelo2.predict(X=X_test)
-        predicciones3 = modelo3.predict(X=X_test)
-        err1 = self.__Errores(y_test,predicciones1)
-        err2 = self.__Errores(y_test,predicciones2)
-        err3 = self.__Errores(y_test,predicciones3)
-        return err1, err2, err3
-    
-    def ComparacionSVM(self, X_train, X_test, y_train, y_test):
-        err1, err2, err3 = self.SVM(X_train, X_test, y_train, y_test)
-        comparacion = pd.DataFrame([err1.Error, err2.Error, err3.Error])
-        comparacion.columns = ['RMSE','MAE','ER']
-        comparacion.index  = ['SVM rbf','SVM linear','SVM poly']
-        return comparacion
-    
-    def DecisionTreeReg(self, X_train, X_test, y_train, y_test):
-        modelo_arbol = DecisionTreeRegressor(max_depth=3,random_state= 123)
-        modelo_arbol.fit(X=X_train, y=y_train)
-        predicciones = modelo_arbol.predict(X=X_test)
-        err_arbol = self.__Errores(y_test,predicciones)
-        return err_arbol
-    
-    def RandomForestReg(self, X_train, X_test, y_train, y_test):
-        modelo_Bosque = RandomForestRegressor(max_depth=2, random_state=0)
-        modelo_Bosque.fit(X=X_train, y=y_train)
-        predicciones = modelo_Bosque.predict(X=X_test)
-        err_Bosque = self.__Errores(y_test,predicciones)
-        return err_Bosque
-    
-    def XGBoostingReg(self, X_train, X_test, y_train, y_test):
-        modelo_Potenciacion = ensemble.GradientBoostingRegressor(n_estimators = 500, max_depth = 4, min_samples_split = 5)
-        modelo_Potenciacion.fit(X=X_train, y=y_train)
-        predicciones = modelo_Potenciacion.predict(X=X_test)
-        err_Potenciacion = self.__Errores(y_test,predicciones)
-        return err_Potenciacion
-    
-    def ComparacionALL(self, X_train, X_test, y_train, y_test):
-        err_RegMul = self.RegLinMult(X_train, X_test, y_train, y_test)
-        err_lasso2 = self.RegLassoCV(X_train, X_test, y_train, y_test)
-        err_Ridge2 = self.RegRidgeCV(X_train, X_test, y_train, y_test)
-        err1, err2, err3 = self.SVM(X_train, X_test, y_train, y_test)
-        err_arbol = self.DecisionTreeReg(X_train, X_test, y_train, y_test)
-        err_Bosque = self.RandomForestReg(X_train, X_test, y_train, y_test)
-        err_Potenciacion = self.XGBoostingReg(X_train, X_test, y_train, y_test)
-        comparacion = pd.DataFrame([err_RegMul.Error,err_lasso2.Error,err_Ridge2.Error, err1.Error, err2.Error, err3.Error, err_arbol.Error, err_Bosque.Error, err_Potenciacion.Error])
-        comparacion.columns = ['RMSE','MAE','ER']
-        comparacion.index  = ['Múltiple', 'Lasso','Ridge','SVM rbf','SVM linear','SVM poly','Árbol', 'Bosques', 'Potenciación']
-        return comparacion
-    
-    def Max(self, y):
-        print(self.__ResVarPred(y))
+        cv = RidgeCV(alphas=np.logspace(-10, 2, 200), fit_intercept=True).fit(X_train, y_train)
+        modelo = Ridge(alpha=cv.alpha_).fit(X_train, y_train)
+        preds = modelo.predict(X_test)
+        return modelo, preds, self._errores(y_test, preds)
+
+    def SVM(self, X_train, X_test, y_train, y_test, kernel="rbf", C=100, epsilon=0.1, degree=3):
+        modelo = make_pipeline(StandardScaler(),
+                               SVR(kernel=kernel, C=C, epsilon=epsilon, degree=degree))
+        modelo.fit(X_train, y_train)
+        preds = modelo.predict(X_test)
+        return modelo, preds, self._errores(y_test, preds)
+
+    def DecisionTreeReg(self, X_train, X_test, y_train, y_test, max_depth=3, random_state=42):
+        modelo = DecisionTreeRegressor(max_depth=max_depth, random_state=random_state)
+        modelo.fit(X_train, y_train)
+        preds = modelo.predict(X_test)
+        return modelo, preds, self._errores(y_test, preds)
+
+    def RandomForestReg(self, X_train, X_test, y_train, y_test, n_estimators=100, max_depth=None, random_state=42):
+        modelo = RandomForestRegressor(n_estimators=n_estimators, max_depth=max_depth,
+                                       random_state=random_state)
+        modelo.fit(X_train, y_train)
+        preds = modelo.predict(X_test)
+        return modelo, preds, self._errores(y_test, preds)
+
+    def XGBoostingReg(self, X_train, X_test, y_train, y_test, n_estimators=500,
+                      max_depth=4, min_samples_split=5, random_state=42):
+        modelo = GradientBoostingRegressor(n_estimators=n_estimators, max_depth=max_depth,
+                                           min_samples_split=min_samples_split,
+                                           random_state=random_state)
+        modelo.fit(X_train, y_train)
+        preds = modelo.predict(X_test)
+        return modelo, preds, self._errores(y_test, preds)
+
+    # ── API para Streamlit ───────────────────────────────────────────────────
+    def entrenar(self, algoritmo, target, params=None, test_size=0.25, random_state=42):
+        params = params or {}
+        X_train, X_test, y_train, y_test, _ = self.preparar_datos(
+            target=target, test_size=test_size, random_state=random_state
+        )
+
+        a = algoritmo.lower()
+        if a in ("lineal multiple", "regresión lineal múltiple", "regresion lineal multiple", "linear"):
+            mdl, preds, err = self.RegLinMult(X_train, X_test, y_train, y_test)
+        elif a in ("lasso",):
+            mdl, preds, err = self.RegLassoCV(X_train, X_test, y_train, y_test)
+        elif a in ("ridge",):
+            mdl, preds, err = self.RegRidgeCV(X_train, X_test, y_train, y_test)
+        elif a in ("svm",):
+            mdl, preds, err = self.SVM(X_train, X_test, y_train, y_test,
+                                       kernel=params.get("kernel", "rbf"))
+        elif a in ("árbol de decisión", "arbol de decision", "dt", "decision tree"):
+            mdl, preds, err = self.DecisionTreeReg(X_train, X_test, y_train, y_test,
+                                                   max_depth=params.get("max_depth", 4),
+                                                   random_state=random_state)
+        elif a in ("random forest", "rf"):
+            mdl, preds, err = self.RandomForestReg(X_train, X_test, y_train, y_test,
+                                                   n_estimators=params.get("n_estimators", 100),
+                                                   max_depth=params.get("max_depth", 5),
+                                                   random_state=random_state)
+        elif a in ("gradient boosting", "xg", "xgboost"):
+            mdl, preds, err = self.XGBoostingReg(X_train, X_test, y_train, y_test,
+                                                 n_estimators=params.get("n_estimators", 100),
+                                                 max_depth=params.get("max_depth", 4),
+                                                 random_state=random_state)
+        else:
+            raise ValueError(f"Algoritmo desconocido: {algoritmo}")
+
+        return {
+            "modelo_nombre": algoritmo,
+            "modelo": mdl,
+            "y_test": np.asarray(y_test),
+            "y_pred": np.asarray(preds),
+            "metricas": err,
+            "r2": err["R2"],
+            "rmse": err["RMSE"],
+            "mae": err["MAE"],
+        }
+
+    def comparar_todos(self, target, params=None, test_size=0.25, random_state=42):
+        import traceback
+        params = params or {}
+        algoritmos = ["Regresión Lineal Múltiple", "Lasso", "Ridge", "SVM",
+                      "Árbol de Decisión", "Random Forest", "Gradient Boosting"]
+        resultados = []
+        errores = []
+        for alg in algoritmos:
+            try:
+                res = self.entrenar(alg, target=target, params=params,
+                                    test_size=test_size, random_state=random_state)
+                resultados.append(res)
+            except Exception as e:
+                err_info = {
+                    "algoritmo": alg,
+                    "tipo": type(e).__name__,
+                    "mensaje": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+                errores.append(err_info)
+                print(f"[ERROR] {alg} ({type(e).__name__}): {e}")
+
+        tabla = pd.DataFrame([{
+            "Modelo": r["modelo_nombre"],
+            "R²": r["r2"],
+            "RMSE": r["rmse"],
+            "MAE": r["mae"],
+        } for r in resultados]).sort_values("R²", ascending=False).reset_index(drop=True)
+        return resultados, tabla, errores

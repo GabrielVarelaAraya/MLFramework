@@ -6,4 +6,4 @@ scikit-learn
 prince
 umap-learn
 scikit-learn-extra
-numpy
+numpy<2
