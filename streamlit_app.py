@@ -132,13 +132,63 @@ eda = analisisEDA(None, None)
 eda.df = df
 
 
-# ── Tabs principales ─────────────────────────────────────────────────────────
-tab_eda, tab_cluster, tab_clf, tab_reg = st.tabs([
+# ── Sugerencia automática de tipo de problema ────────────────────────────────
+sugerencia = analisisEDA.detectar_tipo_problema(df)
+_iconos = {"clasificacion": "🎯", "regresion": "📈", "no_supervisado": "🔵"}
+_etiquetas = {"clasificacion": "Clasificación", "regresion": "Regresión",
+              "no_supervisado": "No supervisado (Clustering / EDA)"}
+_icono = _iconos.get(sugerencia["tipo"], "🤖")
+_etiqueta = _etiquetas.get(sugerencia["tipo"], sugerencia["tipo"])
+
+with st.sidebar:
+    st.markdown("---")
+    st.markdown("### 🧠 Sugerencia automática")
+    st.markdown(f"**{_icono} {_etiqueta}**")
+    if sugerencia["target_sugerido"]:
+        st.caption(f"Target sugerido: `{sugerencia['target_sugerido']}`")
+    st.caption(sugerencia["razon"])
+
+st.markdown(
+    f"""
+    <div style="background:#1a2332;border-left:4px solid #4f8bf9;
+                padding:14px 18px;border-radius:8px;margin-bottom:18px;">
+        <div style="color:#9ca3af;font-size:12px;font-weight:600;
+                    text-transform:uppercase;letter-spacing:0.05em;">
+            Sugerencia automática
+        </div>
+        <div style="color:#f0f2f6;font-size:18px;font-weight:700;margin-top:4px;">
+            {_icono} {_etiqueta}
+            {f"· target: <code>{sugerencia['target_sugerido']}</code>"
+             if sugerencia["target_sugerido"] else ""}
+        </div>
+        <div style="color:#9ca3af;font-size:13px;margin-top:6px;">
+            {sugerencia["razon"]}
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# ── Tabs principales (agrupadas por tipo de aprendizaje) ─────────────────────
+tab_eda, tab_sup, tab_ns = st.tabs([
     "📊 EDA",
-    "🔵 Clustering",
-    "🎯 Clasificación",
-    "📈 Regresión",
+    "🧠 Supervisado",
+    "🔵 No supervisado",
 ])
+
+with tab_sup:
+    st.caption("Modelos que requieren una variable objetivo (target).")
+    tab_clf, tab_reg = st.tabs([
+        "🎯 Clasificación",
+        "📈 Regresión",
+    ])
+
+with tab_ns:
+    st.caption("Modelos que no requieren etiquetas — descubren estructura en los datos.")
+    (tab_cluster,) = st.tabs([
+        "🔵 Clustering",
+    ])
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -345,7 +395,13 @@ with tab_clf:
 
     cc1, cc2 = st.columns(2)
     with cc1:
-        target_clf = st.selectbox("Columna objetivo (target)", [None] + list(df.columns), key="tgt_clf")
+        _clf_opts = [None] + list(df.columns)
+        _clf_default = (_clf_opts.index(sugerencia["target_sugerido"])
+                        if sugerencia["tipo"] == "clasificacion"
+                        and sugerencia["target_sugerido"] in df.columns else 0)
+        target_clf = st.selectbox("Columna objetivo (target)", _clf_opts,
+                                  index=_clf_default, key="tgt_clf",
+                                  help="Sugerencia automática aplicada si el dataset parece de clasificación.")
     with cc2:
         algo_clf = st.selectbox("Algoritmo", [
             "KNN", "Decision Tree", "Random Forest",
@@ -479,8 +535,13 @@ with tab_reg:
     rc1, rc2 = st.columns(2)
     with rc1:
         num_options = df.select_dtypes(include="number").columns.tolist()
+        _reg_opts = [None] + num_options
+        _reg_default = (_reg_opts.index(sugerencia["target_sugerido"])
+                        if sugerencia["tipo"] == "regresion"
+                        and sugerencia["target_sugerido"] in num_options else 0)
         target_reg = st.selectbox("Variable objetivo (numérica)",
-                                  [None] + num_options, key="tgt_reg")
+                                  _reg_opts, index=_reg_default, key="tgt_reg",
+                                  help="Sugerencia automática aplicada si el dataset parece de regresión.")
     with rc2:
         algo_reg = st.selectbox("Algoritmo", [
             "Regresión Lineal Múltiple", "Lasso", "Ridge",
