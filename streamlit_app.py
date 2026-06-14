@@ -275,14 +275,9 @@ with tab_eda:
         with cc1:
             st.dataframe(vc, use_container_width=True, hide_index=True)
         with cc2:
-            fig, ax = plt.subplots(figsize=(6, 3.5))
-            colors = sns.color_palette("Set2", len(vc))
-            ax.barh(vc[col_sel].astype(str), vc["Frecuencia"], color=colors)
-            ax.set_xlabel("Frecuencia")
-            ax.set_title(f"Distribución de '{col_sel}'")
-            ax.invert_yaxis()
-            plt.tight_layout()
-            show_fig(fig)
+            eda_cat = analisisEDA(None, None)
+            eda_cat.df = df
+            show_fig(eda_cat.histogramaClase_fig(col_sel))
 
 
 # ════════════════════════════════════════════════════════════════════════════
