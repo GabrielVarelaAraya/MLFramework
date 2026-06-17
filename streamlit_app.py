@@ -294,14 +294,27 @@ with tab_cluster:
 
     cl1, cl2 = st.columns([1, 2])
     with cl1:
-        algos_disponibles = ["KMeans", "HAC", "T-SNE", "UMAP"]
+        algos_disponibles = ["KMeans", "KMedoids", "HAC", "DBSCAN", "T-SNE", "UMAP"]
         algo_cl = st.selectbox("Algoritmo", algos_disponibles)
-        n_clusters_cl = st.slider("Número de clusters", 2, 10, 3)
+        if algo_cl == "DBSCAN":
+            n_clusters_cl = None
+            st.caption("DBSCAN detecta el número de clusters automáticamente.")
+        else:
+            n_clusters_cl = st.slider("Número de clusters", 2, 10, 3)
         normalizar = st.checkbox("Normalizar (StandardScaler)", value=True)
         if algo_cl == "HAC":
             linkage_method = st.selectbox("Método de linkage", ["ward", "average", "single", "complete"])
         else:
             linkage_method = "ward"
+        if algo_cl == "KMedoids":
+            metric_km = st.selectbox("Métrica de distancia", ["euclidean", "cityblock"])
+        else:
+            metric_km = "euclidean"
+        if algo_cl == "DBSCAN":
+            eps_db = st.slider("eps (radio de vecindad)", 0.1, 5.0, 0.5, 0.1)
+            min_samples_db = st.slider("min_samples", 2, 20, 5)
+        else:
+            eps_db, min_samples_db = 0.5, 5
     with cl2:
         st.markdown("**Columnas disponibles**")
         cols_sel = st.multiselect("Usar columnas", df_num_cl.columns.tolist(),
@@ -314,9 +327,13 @@ with tab_cluster:
     if st.button("Ejecutar clustering", type="primary"):
         try:
             with st.spinner(f"Entrenando {algo_cl}..."):
-                kwargs = {"linkage": linkage_method} if algo_cl == "HAC" else {}
-                if algo_cl == "DBSCAN":
-                    kwargs = {"eps": 0.5, "min_samples": 5}
+                kwargs = {}
+                if algo_cl == "HAC":
+                    kwargs = {"linkage": linkage_method}
+                elif algo_cl == "KMedoids":
+                    kwargs = {"metric": metric_km}
+                elif algo_cl == "DBSCAN":
+                    kwargs = {"eps": eps_db, "min_samples": min_samples_db}
                     n_clusters_cl = None  # DBSCAN lo detecta automáticamente
                 
                 # Crear nuevo maestro con datos filtrados
