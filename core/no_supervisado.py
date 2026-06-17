@@ -1,6 +1,6 @@
 import pandas as pd
 
-from eda import analisisEDA
+from core.eda import analisisEDA
 
 
 class NoSupervisado(analisisEDA):

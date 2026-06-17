@@ -1,6 +1,6 @@
 import pandas as pd
 
-from eda import analisisEDA
+from core.eda import analisisEDA
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 

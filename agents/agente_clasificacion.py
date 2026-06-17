@@ -1,4 +1,4 @@
-from clasificacion import Clasificacion
+from core.clasificacion import Clasificacion
 
 
 class AgenteClasificacion:

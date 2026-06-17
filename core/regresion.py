@@ -1,4 +1,4 @@
-from supervisado import Supervisado
+from core.supervisado import Supervisado
 import numpy as np
 import pandas as pd
 import math

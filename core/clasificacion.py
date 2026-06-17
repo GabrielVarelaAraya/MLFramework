@@ -1,4 +1,4 @@
-from supervisado import Supervisado
+from core.supervisado import Supervisado
 import pandas as pd
 import numpy as np
 from sklearn.neighbors import KNeighborsClassifier

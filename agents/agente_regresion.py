@@ -1,4 +1,4 @@
-from regresion import Regresion
+from core.regresion import Regresion
 
 
 class AgenteRegresion:

@@ -1,4 +1,4 @@
-from clustering import Clustering
+from core.clustering import Clustering
 
 
 class AgenteClustering:
@@ -23,6 +23,14 @@ class AgenteClustering:
     def benchmark(self):
         return self._backend.benchmark()
 
+    def comparar_todos(self, n_clusters=3, columnas=None, normalizar=True, random_state=42):
+        return self._backend.comparar_todos(
+            n_clusters=n_clusters,
+            columnas=columnas,
+            normalizar=normalizar,
+            random_state=random_state,
+        )
+
     # ── Visualizaciones ──────────────────────────────────────────────────────
     def plot_proyeccion_2d(self, resultado):
         return Clustering.plot_proyeccion_2d_fig(
@@ -42,3 +50,6 @@ class AgenteClustering:
 
     def plot_dendrograma(self, resultado, metodo="ward"):
         return Clustering.plot_dendrograma_fig(resultado["X"], metodo=metodo)
+
+    def decidir(self, resultados):
+        return self._backend.decidir(resultados)

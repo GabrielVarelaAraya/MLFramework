@@ -1,4 +1,4 @@
-from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.metrics import (silhouette_score, calinski_harabasz_score,
@@ -22,7 +22,7 @@ try:
 except ImportError:
     _HAS_UMAP = False
 
-from no_supervisado import NoSupervisado
+from core.no_supervisado import NoSupervisado
 
 
 class Clustering(NoSupervisado):
@@ -81,6 +81,18 @@ class Clustering(NoSupervisado):
             model = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
             labels = model.fit_predict(X_proj)
             centros = self._compute_centroids(X, labels, n_clusters)
+
+        elif algoritmo_lower == "dbscan":
+            eps = kwargs.get("eps", 0.5)
+            min_samples = kwargs.get("min_samples", 5)
+            model = DBSCAN(eps=eps, min_samples=min_samples)
+            labels = model.fit_predict(X)
+            # DBSCAN puede generar ruido (etiqueta -1)
+            unique_labels = np.unique(labels)
+            n_clusters_found = len(unique_labels[unique_labels != -1])
+            # Actualizar n_clusters con el número real encontrado
+            n_clusters = n_clusters_found
+            centros = self._compute_centroids(X, labels, n_clusters) if n_clusters > 0 else np.array([])
 
         else:
             raise ValueError(f"Algoritmo desconocido: {algoritmo}")
@@ -195,3 +207,59 @@ class Clustering(NoSupervisado):
         df = resultado["df_original"].copy()
         df["Cluster"] = resultado["labels"]
         return df.groupby("Cluster").mean().round(3)
+
+    def comparar_todos(self, n_clusters=3, columnas=None, normalizar=True, random_state=42):
+        """Compara todos los algoritmos disponibles."""
+        algoritmos = ["KMeans", "HAC"]
+        if _HAS_UMAP:
+            algoritmos.append("UMAP")
+
+        resultados = []
+        for algo in algoritmos:
+            try:
+                res = self.ejecutar(
+                    algoritmo=algo,
+                    n_clusters=n_clusters,
+                    columnas=columnas,
+                    normalizar=normalizar,
+                    random_state=random_state,
+                )
+                resultados.append(res)
+            except Exception:
+                pass
+
+        if not resultados:
+            raise ValueError("Ningún algoritmo pudo ejecutarse.")
+
+        tabla = pd.DataFrame([{
+            "Algoritmo": r["algoritmo"],
+            "Silhouette": r["metricas"]["silhouette"],
+            "Calinski-Harabasz": r["metricas"]["calinski_harabasz"],
+            "Davies-Bouldin": r["metricas"]["davies_bouldin"],
+        } for r in resultados])
+
+        return resultados, tabla
+
+    def decidir(self, resultados):
+        # resultados es lista de dicts con la clave "metricas"
+        if not resultados:
+            raise ValueError("No hay resultados para comparar.")
+        for r in resultados:
+            m = r.get("metricas", {})
+            r["silhouette"] = m.get("silhouette", float("nan"))
+            r["calinski_harabasz"] = m.get("calinski_harabasz", float("nan"))
+            r["davies_bouldin"] = m.get("davies_bouldin", float("nan"))
+
+        ch_values = [r["calinski_harabasz"] for r in resultados
+                     if np.isfinite(r["calinski_harabasz"])]
+        max_ch = max(ch_values) if ch_values else 1.0
+        if max_ch == 0 or not np.isfinite(max_ch):
+            max_ch = 1.0
+
+        for r in resultados:
+            sil = r["silhouette"] if np.isfinite(r["silhouette"]) else 0.0
+            ch = r["calinski_harabasz"] if np.isfinite(r["calinski_harabasz"]) else 0.0
+            db = r["davies_bouldin"] if np.isfinite(r["davies_bouldin"]) else 0.0
+            r["score_compuesto"] = sil * 0.5 + (ch / max_ch) * 0.3 - db * 0.2
+
+        return max(resultados, key=lambda r: r["score_compuesto"])

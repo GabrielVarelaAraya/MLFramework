@@ -10,15 +10,11 @@ warnings.filterwarnings('ignore')
 
 from sklearn.preprocessing import LabelEncoder
 
-from eda import analisisEDA
-from clasificacion import Clasificacion
-from regresion import Regresion
-from clustering import Clustering
+from agents import AgenteMaestro
 
 # ── Configuración de página ──────────────────────────────────────────────────
 st.set_page_config(
     page_title="ML Framework",
-    page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -80,21 +76,31 @@ def show_fig(fig):
 
 # ── Sidebar: carga de datos ──────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🤖 ML Framework")
+    st.markdown("## ML Framework")
     st.markdown("---")
-    st.markdown("### 📂 Cargar datos")
+    st.markdown("### Cargar datos")
     uploaded_file = st.file_uploader("Sube un archivo CSV", type=["csv"], label_visibility="collapsed")
     sep = st.radio("Separador", [",", ";"], horizontal=True)
     use_dummies = st.checkbox("Convertir categóricas a dummies", value=False,
                               help="Aplica get_dummies a las columnas categóricas")
 
     st.markdown("---")
-    st.markdown("### ⚙️ Configuración global")
+    st.markdown("### Configuración global")
     test_size = st.slider("Tamaño de test (%)", 10, 40, 25)
     random_seed = st.number_input("Semilla aleatoria", value=42, step=1)
 
     st.markdown("---")
-    st.caption("Ciclo 1 — 2026 · IA · MLFramework")
+    st.markdown(
+        """
+        **Ciclo 1 — 2026 · IA · MLFramework**
+
+        Autores:  
+        - Santiago Azofeifa  
+        - Rubén Ramos  
+        - Gabriel Varela
+        """
+    )
+
 
 
 # ── Cargar dataset ───────────────────────────────────────────────────────────
@@ -115,7 +121,7 @@ if uploaded_file is not None:
 st.markdown("""
 <div style="background: linear-gradient(90deg,#1a1f35,#1e3a5f);
             border-radius:14px; padding:28px 32px; margin-bottom:24px;">
-    <h1 style="margin:0;color:#f0f2f6;font-size:32px;">🤖 ML Framework</h1>
+    <h1 style="margin:0;color:#f0f2f6;font-size:32px;">ML Framework</h1>
     <p style="margin:6px 0 0;color:#9ca3af;font-size:15px;">
         Análisis exploratorio · Clustering · Clasificación · Regresión
     </p>
@@ -123,21 +129,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 if df is None:
-    st.info("👈 Sube un archivo CSV desde la barra lateral para comenzar.")
+    st.info(" Sube un archivo CSV desde la barra lateral para comenzar.")
     st.stop()
 
 
-# ── Instanciar EDA (compartido por las tabs) ─────────────────────────────────
-eda = analisisEDA(None, None)
-eda.df = df
+# ── Instanciar AgenteMaestro (compartido por las tabs) ──────────────────────
+maestro = AgenteMaestro(df)
 
 
 # ── Sugerencia automática de tipo de problema ────────────────────────────────
-sugerencia = analisisEDA.detectar_tipo_problema(df)
-_iconos = {"clasificacion": "🎯", "regresion": "📈", "no_supervisado": "🔵"}
+sugerencia = maestro.sugerir_tipo()
+_iconos = {"clasificacion": "", "regresion": "", "no_supervisado": ""}
 _etiquetas = {"clasificacion": "Clasificación", "regresion": "Regresión",
               "no_supervisado": "No supervisado (Clustering / EDA)"}
-_icono = _iconos.get(sugerencia["tipo"], "🤖")
+_icono = _iconos.get(sugerencia["tipo"], "")
 _etiqueta = _etiquetas.get(sugerencia["tipo"], sugerencia["tipo"])
 
 with st.sidebar:
@@ -172,22 +177,22 @@ st.markdown(
 
 # ── Tabs principales (agrupadas por tipo de aprendizaje) ─────────────────────
 tab_eda, tab_sup, tab_ns = st.tabs([
-    "📊 EDA",
-    "🧠 Supervisado",
-    "🔵 No supervisado",
+    "EDA",
+    "Supervisado",
+    "No supervisado",
 ])
 
 with tab_sup:
     st.caption("Modelos que requieren una variable objetivo (target).")
     tab_clf, tab_reg = st.tabs([
-        "🎯 Clasificación",
-        "📈 Regresión",
+        "Clasificación",
+        "Regresión",
     ])
 
 with tab_ns:
     st.caption("Modelos que no requieren etiquetas — descubren estructura en los datos.")
     (tab_cluster,) = st.tabs([
-        "🔵 Clustering",
+        "Clustering",
     ])
 
 
@@ -197,7 +202,7 @@ with tab_ns:
 with tab_eda:
     st.markdown('<div class="section-title">Resumen del Dataset</div>', unsafe_allow_html=True)
 
-    resumen = eda.resumen_dict()
+    resumen = maestro.ejecutar_eda()
     num_cols = resumen["num_cols"]
     cat_cols = resumen["cat_cols"]
 
@@ -236,28 +241,26 @@ with tab_eda:
     ])
 
     if num_cols:
-        eda_viz = analisisEDA(None, None)
-        eda_viz.df = df.select_dtypes(include="number").dropna()
         try:
             if viz_type == "Boxplots":
-                show_fig(eda_viz.graficoBoxplot_fig())
+                show_fig(maestro._eda.grafico_boxplot())
             elif viz_type == "Histogramas":
-                show_fig(eda_viz.histogramas_fig())
+                show_fig(maestro._eda.histogramas())
             elif viz_type == "Distribución (KDE)":
-                show_fig(eda_viz.distribucionVariables_fig())
+                show_fig(maestro._eda.distribucion_variables())
             elif viz_type == "Densidad":
-                show_fig(eda_viz.datosDensidad_fig())
+                show_fig(maestro._eda.grafico_densidad())
             elif viz_type == "Correlaciones (heatmap)":
-                show_fig(eda_viz.graficoCorrelacion_fig())
+                show_fig(maestro._eda.grafico_correlacion())
             elif viz_type == "Dispersión por pares":
                 if len(num_cols) <= 6:
-                    fig = eda_viz.graficosDispersion_fig()
+                    fig = maestro._eda.graficos_dispersion()
                     if fig is not None:
                         show_fig(fig)
                 else:
                     sel = st.multiselect("Selecciona hasta 5 columnas", num_cols, num_cols[:5])
                     if len(sel) >= 2:
-                        fig = eda_viz.graficosDispersion_fig(columnas=sel)
+                        fig = maestro._eda.graficos_dispersion(columnas=sel)
                         if fig is not None:
                             show_fig(fig)
         except Exception as e:
@@ -275,9 +278,7 @@ with tab_eda:
         with cc1:
             st.dataframe(vc, use_container_width=True, hide_index=True)
         with cc2:
-            eda_cat = analisisEDA(None, None)
-            eda_cat.df = df
-            show_fig(eda_cat.histogramaClase_fig(col_sel))
+            show_fig(maestro._eda.histograma_clase(col_sel))
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -293,7 +294,7 @@ with tab_cluster:
 
     cl1, cl2 = st.columns([1, 2])
     with cl1:
-        algos_disponibles = ["KMeans", "KMedoids", "HAC", "T-SNE", "UMAP"]
+        algos_disponibles = ["KMeans", "HAC", "T-SNE", "UMAP"]
         algo_cl = st.selectbox("Algoritmo", algos_disponibles)
         n_clusters_cl = st.slider("Número de clusters", 2, 10, 3)
         normalizar = st.checkbox("Normalizar (StandardScaler)", value=True)
@@ -310,15 +311,21 @@ with tab_cluster:
         st.warning("Selecciona al menos 2 columnas.")
         st.stop()
 
-    if st.button("▶️ Ejecutar clustering", type="primary"):
+    if st.button("Ejecutar clustering", type="primary"):
         try:
-            clu = Clustering(df)
             with st.spinner(f"Entrenando {algo_cl}..."):
                 kwargs = {"linkage": linkage_method} if algo_cl == "HAC" else {}
-                res = clu.ejecutar(
+                if algo_cl == "DBSCAN":
+                    kwargs = {"eps": 0.5, "min_samples": 5}
+                    n_clusters_cl = None  # DBSCAN lo detecta automáticamente
+                
+                # Crear nuevo maestro con datos filtrados
+                df_cluster = df[cols_sel].dropna()
+                maestro_cluster = AgenteMaestro(df_cluster)
+                
+                res = maestro_cluster.ejecutar_clustering(
                     algoritmo=algo_cl,
-                    n_clusters=n_clusters_cl,
-                    columnas=cols_sel,
+                    n_clusters=n_clusters_cl if n_clusters_cl else 3,
                     normalizar=normalizar,
                     random_state=int(random_seed),
                     **kwargs,
@@ -334,7 +341,7 @@ with tab_cluster:
         m1, m2, m3, m4 = st.columns(4)
         m1.markdown(metric_card("Algoritmo", res["algoritmo"], ""), unsafe_allow_html=True)
         m2.markdown(metric_card("Silhouette", f"{mtr['silhouette']:.3f}",
-                                "Rango: -1 → 1", score_color(mtr["silhouette"])),
+                                "Rango: -1 a 1", score_color(mtr["silhouette"])),
                     unsafe_allow_html=True)
         m3.markdown(metric_card("Calinski-Harabasz", f"{mtr['calinski_harabasz']:.1f}",
                                 "Cuanto mayor, mejor"), unsafe_allow_html=True)
@@ -347,19 +354,17 @@ with tab_cluster:
         g1, g2 = st.columns(2)
         with g1:
             st.markdown("**Proyección 2D**")
-            fig = Clustering.plot_proyeccion_2d_fig(
-                res["X_proj"], res["labels"], n_clusters_cl,
-                titulo=f"{algo_cl} — {n_clusters_cl} clusters"
-            )
+            fig = maestro_cluster._clustering.plot_proyeccion_2d(res)
             show_fig(fig)
         with g2:
             st.markdown("**Distribución por cluster**")
-            fig = Clustering.plot_distribucion_clusters_fig(res["labels"], n_clusters_cl)
+            from core.clustering import Clustering
+            fig = Clustering.plot_distribucion_clusters_fig(res["labels"], res["n_clusters"])
             show_fig(fig)
 
         st.markdown("---")
         st.markdown("**Perfil de cada cluster (media de variables)**")
-        perfil = clu.perfil_clusters(res)
+        perfil = maestro_cluster._clustering.perfil_clusters(res)
         st.dataframe(
             perfil.style.background_gradient(cmap="Blues", axis=0).format(precision=3),
             use_container_width=True
@@ -367,7 +372,8 @@ with tab_cluster:
 
         if algo_cl == "HAC" and len(res["X"]) <= 200:
             st.markdown("---")
-            st.markdown(f"**Dendrograma — método: {linkage_method}**")
+            st.markdown(f"**Dendrograma - método: {linkage_method}**")
+            from core.clustering import Clustering
             fig = Clustering.plot_dendrograma_fig(res["X"], metodo=linkage_method)
             show_fig(fig)
 
@@ -375,11 +381,64 @@ with tab_cluster:
             st.markdown("---")
             st.markdown("**Análisis del Silhouette Score por número de clusters**")
             X_for_curve = res["X_proj"] if algo_cl in ("T-SNE", "UMAP") else res["X"]
+            from core.clustering import Clustering
             fig, best_k, best_score = Clustering.plot_silhouette_curve_fig(
                 X_for_curve, k_min=2, k_max=10, random_state=int(random_seed)
             )
             show_fig(fig)
             st.info(f"Mejor k según Silhouette: **k = {best_k}** (score = {best_score:.3f})")
+
+    if st.button("Comparar todos los algoritmos", type="primary", key="btn_cluster_all"):
+        try:
+            with st.spinner("Comparando algoritmos de clustering..."):
+                df_cluster = df[cols_sel].dropna()
+                maestro_cluster = AgenteMaestro(df_cluster)
+
+                # Ejecuta comparación
+                resultados, tabla = maestro_cluster.comparar_clustering(
+                    n_clusters=n_clusters_cl,
+                    columnas=cols_sel,
+                    normalizar=normalizar,
+                    random_state=int(random_seed),
+                )
+
+                    # El agente decide el mejor
+                mejor = maestro_cluster.decidir_clustering(resultados)
+
+            st.markdown("---")
+            st.markdown('<div class="section-title">Comparación de Clustering</div>', unsafe_allow_html=True)
+
+            # Tabla comparativa
+            st.dataframe(
+                tabla.style.format(precision=3)
+                    .background_gradient(subset=["Silhouette"], cmap="Greens")
+                    .background_gradient(subset=["Davies-Bouldin"], cmap="Reds_r"),
+                use_container_width=True, hide_index=True
+            )
+
+            # Mostrar decisión del agente
+            st.info(f"🏆 Mejor algoritmo según el agente: **{mejor['algoritmo']}** "
+                f"(Silhouette={mejor['metricas'].get('silhouette', float('nan')):.3f}, "
+                f"CH={mejor['metricas'].get('calinski_harabasz', float('nan')):.1f}, "
+                f"DB={mejor['metricas'].get('davies_bouldin', float('nan')):.3f})")
+
+            # Gráfico comparativo
+            fig, ax = plt.subplots(figsize=(6, 4))
+            ax.barh(tabla["Algoritmo"], tabla["Silhouette"],
+                    color=sns.color_palette("Set2", len(tabla)),
+                    edgecolor="white", linewidth=0.5)
+            for i, val in enumerate(tabla["Silhouette"]):
+                ax.text(val + 0.01, i, f"{val:.3f}", va="center", fontsize=9)
+                ax.set_xlabel("Silhouette")
+                ax.set_title("Silhouette por algoritmo")
+                ax.invert_yaxis()
+            plt.tight_layout()
+            show_fig(fig)
+
+        except Exception as e:
+            st.error(f"Error comparando clustering: {e}")    
+
+
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -390,13 +449,20 @@ with tab_clf:
 
     cc1, cc2 = st.columns(2)
     with cc1:
-        _clf_opts = [None] + list(df.columns)
+        # Solo mostrar columnas con pocos valores únicos (categóricas o numéricas discretas)
+        columnas_categoricas = []
+        for col in df.columns:
+            n_unique = df[col].nunique()
+            if n_unique <= 50:  # umbral para considerar como categórica
+                columnas_categoricas.append(col)
+        
+        _clf_opts = [None] + columnas_categoricas
         _clf_default = (_clf_opts.index(sugerencia["target_sugerido"])
                         if sugerencia["tipo"] == "clasificacion"
-                        and sugerencia["target_sugerido"] in df.columns else 0)
+                        and sugerencia["target_sugerido"] in columnas_categoricas else 0)
         target_clf = st.selectbox("Columna objetivo (target)", _clf_opts,
                                   index=_clf_default, key="tgt_clf",
-                                  help="Sugerencia automática aplicada si el dataset parece de clasificación.")
+                                  help="Solo columnas con <= 50 valores únicos (categóricas).")
     with cc2:
         algo_clf = st.selectbox("Algoritmo", [
             "KNN", "Decision Tree", "Random Forest",
@@ -407,13 +473,13 @@ with tab_clf:
         st.info("Selecciona la columna target para continuar.")
         st.stop()
 
-    with st.expander("⚙️ Parámetros del modelo"):
+    with st.expander(" Parámetros del modelo"):
         p1, p2, p3 = st.columns(3)
-        n_neighbors_v = p1.slider("KNN — vecinos", 1, 20, 5)
+        n_neighbors_v = p1.slider("KNN - vecinos", 1, 20, 5)
         max_depth_v = p2.slider("Max depth", 1, 15, 4)
         n_est_v = p3.slider("N estimadores", 10, 300, 100, 10)
 
-    if st.button("▶️ Entrenar modelo(s)", type="primary", key="btn_clf"):
+    if st.button("Entrenar modelo(s)", type="primary", key="btn_clf"):
         df_work = df.copy()
         y_raw = df_work[target_clf]
 
@@ -423,7 +489,7 @@ with tab_clf:
             le = LabelEncoder()
             df_work[target_clf] = le.fit_transform(y_raw.astype(str))
 
-        clf = Clasificacion(df_work)
+        maestro_clf = AgenteMaestro(df_work)
         params = {
             "n_neighbors": n_neighbors_v,
             "max_depth": max_depth_v,
@@ -434,14 +500,14 @@ with tab_clf:
         try:
             with st.spinner("Entrenando..."):
                 if algo_clf == "Comparar todos":
-                    resultados, tabla = clf.comparar_todos(
+                    resultados, tabla = maestro_clf.comparar_clasificacion(
                         target=target_clf, params=params,
                         test_size=test_size / 100, random_state=int(random_seed)
                     )
                     best = max(resultados, key=lambda r: r["exactitud"])
                 else:
-                    res = clf.entrenar(
-                        algo_clf, target=target_clf, params=params,
+                    res = maestro_clf.ejecutar_clasificacion(
+                        target=target_clf, algoritmo=algo_clf, params=params,
                         test_size=test_size / 100, random_state=int(random_seed)
                     )
                     resultados = [res]
@@ -499,7 +565,7 @@ with tab_clf:
                 show_fig(fig)
 
         st.markdown("---")
-        st.markdown(f"**Matriz de Confusión — {best['modelo_nombre']}**")
+        st.markdown(f"**Matriz de Confusión - {best['modelo_nombre']}**")
         cm = best["matriz_confusion"]
         fig, ax = plt.subplots(figsize=(max(5, len(clases_labels) * 1.5 + 2),
                                         max(4, len(clases_labels) * 1.5 + 1.5)))
@@ -508,12 +574,12 @@ with tab_clf:
                     linewidths=0.5, linecolor="white", ax=ax)
         ax.set_xlabel("Predicho", fontsize=11)
         ax.set_ylabel("Real", fontsize=11)
-        ax.set_title(f"Matriz de Confusión — {best['modelo_nombre']}", fontsize=12)
+        ax.set_title(f"Matriz de Confusión - {best['modelo_nombre']}", fontsize=12)
         plt.tight_layout()
         show_fig(fig)
 
         st.markdown("---")
-        st.markdown(f"**Reporte de clasificación — {best['modelo_nombre']}**")
+        st.markdown(f"**Reporte de clasificación - {best['modelo_nombre']}**")
         report_df = pd.DataFrame(best["reporte"]).T.drop(columns=["support"], errors="ignore")
         st.dataframe(
             report_df.style.format(precision=3)
@@ -529,6 +595,7 @@ with tab_reg:
 
     rc1, rc2 = st.columns(2)
     with rc1:
+        # Solo mostrar columnas numéricas
         num_options = df.select_dtypes(include="number").columns.tolist()
         _reg_opts = [None] + num_options
         _reg_default = (_reg_opts.index(sugerencia["target_sugerido"])
@@ -536,7 +603,7 @@ with tab_reg:
                         and sugerencia["target_sugerido"] in num_options else 0)
         target_reg = st.selectbox("Variable objetivo (numérica)",
                                   _reg_opts, index=_reg_default, key="tgt_reg",
-                                  help="Sugerencia automática aplicada si el dataset parece de regresión.")
+                                  help="Solo columnas numéricas continuas.")
     with rc2:
         algo_reg = st.selectbox("Algoritmo", [
             "Regresión Lineal Múltiple", "Lasso", "Ridge",
@@ -548,39 +615,39 @@ with tab_reg:
         st.info("Selecciona la variable objetivo para continuar.")
         st.stop()
 
-    with st.expander("⚙️ Parámetros del modelo"):
+    with st.expander("Parámetros del modelo"):
         rp1, rp2 = st.columns(2)
         max_depth_r = rp1.slider("Max depth (árboles)", 1, 15, 4, key="md_reg")
         n_est_r = rp2.slider("N estimadores (ensembles)", 10, 500, 100, 10, key="ne_reg")
 
-    if st.button("▶️ Entrenar modelo(s)", type="primary", key="btn_reg"):
+    if st.button("Entrenar modelo(s)", type="primary", key="btn_reg"):
         df_reg_input = df.select_dtypes(include="number").dropna()
         if target_reg not in df_reg_input.columns:
             st.error(f"La columna '{target_reg}' no es numérica o tiene nulos.")
             st.stop()
 
-        reg = Regresion(df_reg_input)
+        maestro_reg = AgenteMaestro(df_reg_input)
         params = {"max_depth": max_depth_r, "n_estimators": n_est_r}
 
         try:
             with st.spinner("Entrenando modelos..."):
                 if algo_reg == "Comparar todos":
-                    resultados, tabla, errores = reg.comparar_todos(
+                    resultados, tabla, errores = maestro_reg.comparar_regresion(
                         target=target_reg, params=params,
                         test_size=test_size / 100, random_state=int(random_seed)
                     )
                     if errores:
-                        with st.expander(f"⚠️ {len(errores)} algoritmo(s) fallaron", expanded=False):
+                        with st.expander(f"{len(errores)} algoritmo(s) fallaron", expanded=False):
                             for err in errores:
-                                st.error(f"**{err['algoritmo']}** — {err['tipo']}: {err['mensaje']}")
+                                st.error(f"**{err['algoritmo']}** - {err['tipo']}: {err['mensaje']}")
                                 st.code(err["traceback"], language="python")
                     if not resultados:
                         st.error("Ningún modelo de regresión pudo entrenarse. Revisa los errores arriba.")
                         st.stop()
                     best_r = max(resultados, key=lambda r: r["r2"])
                 else:
-                    res = reg.entrenar(
-                        algo_reg, target=target_reg, params=params,
+                    res = maestro_reg.ejecutar_regresion(
+                        target=target_reg, algoritmo=algo_reg, params=params,
                         test_size=test_size / 100, random_state=int(random_seed)
                     )
                     resultados = [res]
@@ -634,7 +701,7 @@ with tab_reg:
                 show_fig(fig)
 
         st.markdown("---")
-        st.markdown(f"**Predicho vs Real — {best_r['modelo_nombre']}**")
+        st.markdown(f"**Predicho vs Real - {best_r['modelo_nombre']}**")
         y_test_arr = np.asarray(best_r["y_test"])
         preds_b = np.asarray(best_r["y_pred"])
         n_sample = min(len(y_test_arr), 200)
