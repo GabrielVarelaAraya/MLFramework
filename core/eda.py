@@ -107,6 +107,198 @@ class analisisEDA():
             "descripcion": self.__df.describe(include="all"),
         }
 
+    # ── Estadísticas avanzadas (moda, varianza) ───────────────────────────────
+    def analisis_estadistico_dict(self):
+        """Retorna dict con media, mediana, moda, varianza, desv. estándar, min, max."""
+        num = self.__df.select_dtypes(include="number")
+        if num.empty:
+            return {}
+        result = {}
+        for col in num.columns:
+            s = num[col].dropna()
+            if s.empty:
+                continue
+            result[col] = {
+                "media": round(s.mean(), 4),
+                "mediana": round(s.median(), 4),
+                "moda": s.mode().iloc[0] if not s.mode().empty else None,
+                "varianza": round(s.var(), 4),
+                "desv_std": round(s.std(), 4),
+                "min": round(s.min(), 4),
+                "max": round(s.max(), 4),
+                "rango": round(s.max() - s.min(), 4),
+            }
+        return result
+
+    # ── Detección de registros inconsistentes ─────────────────────────────────
+    def detectar_inconsistencias(self):
+        """
+        Busca registros potencialmente inconsistentes:
+        - Valores negativos donde no debería haber (columnas con nombre edad/año/price/ingreso/salario)
+        - Desbalance extremo de clases (columna categórica con una clase dominante >95%)
+        - Columnas con un solo valor único (constantes)
+        - Filas duplicadas parciales (mismas features pero distinto target)
+        Retorna dict con hallazgos.
+        """
+        hallazgos = []
+        df = self.__df
+
+        # 1) Columnas con nombres que sugieren valores estrictamente positivos
+        positivas = {"age", "edad", "year", "año", "price", "precio", "income",
+                     "ingreso", "salario", "salary", "age", "edad", "height",
+                     "altura", "weight", "peso", "hours", "horas", "count"}
+        for col in df.columns:
+            col_lower = col.lower().strip()
+            if col_lower in positivas and pd.api.types.is_numeric_dtype(df[col]):
+                neg = df[col] < 0
+                n_neg = neg.sum()
+                if n_neg > 0:
+                    hallazgos.append({
+                        "tipo": "valor_negativo",
+                        "columna": col,
+                        "descripcion": f"{n_neg} valor(es) negativo(s) en columna '{col}' (se esperaban solo valores positivos)",
+                        "indices": df.index[neg].tolist()[:10],
+                    })
+
+        # 2) Columnas constantes (un solo valor único)
+        for col in df.columns:
+            n_unique = df[col].nunique(dropna=False)
+            if n_unique == 1:
+                val = df[col].iloc[0]
+                hallazgos.append({
+                    "tipo": "columna_constante",
+                    "columna": col,
+                    "descripcion": f"Columna '{col}' es constante (todos los valores: {val})",
+                    "indices": [],
+                })
+
+        # 3) Categóricas con desbalance extremo
+        for col in df.select_dtypes(include=["object", "category"]):
+            vc = df[col].value_counts()
+            if len(vc) >= 2:
+                ratio = vc.iloc[0] / vc.sum()
+                if ratio > 0.95:
+                    hallazgos.append({
+                        "tipo": "desbalance_extremo",
+                        "columna": col,
+                        "descripcion": f"Clase dominante '{vc.index[0]}' representa {ratio:.1%} de los datos en '{col}'",
+                        "indices": [],
+                    })
+
+        return hallazgos
+
+    # ── Detección de outliers ─────────────────────────────────────────────────
+    def detectar_outliers_iqr(self, columnas=None):
+        """
+        Detecta outliers usando el método IQR (Rango Intercuartil).
+        Retorna dict con {columna: {"outliers": df_filtrado, "n": int, "limite_inf": float, "limite_sup": float}}.
+        """
+        num = self.__df.select_dtypes(include="number")
+        if columnas:
+            num = num[[c for c in columnas if c in num.columns]]
+        if num.empty:
+            return {}
+
+        resultados = {}
+        for col in num.columns:
+            s = num[col].dropna()
+            if len(s) < 4:
+                continue
+            Q1 = s.quantile(0.25)
+            Q3 = s.quantile(0.75)
+            IQR = Q3 - Q1
+            lim_inf = Q1 - 1.5 * IQR
+            lim_sup = Q3 + 1.5 * IQR
+            mask = (s < lim_inf) | (s > lim_sup)
+            n_out = mask.sum()
+            pct = n_out / len(s) * 100
+            resultados[col] = {
+                "n": int(n_out),
+                "pct": round(pct, 2),
+                "limite_inf": round(lim_inf, 4),
+                "limite_sup": round(lim_sup, 4),
+                "Q1": round(Q1, 4),
+                "Q3": round(Q3, 4),
+                "IQR": round(IQR, 4),
+                "outliers": s[mask],
+            }
+        return resultados
+
+    def detectar_outliers_zscore(self, columnas=None, umbral=3):
+        """
+        Detecta outliers usando Z-Score.
+        Retorna dict con {columna: {"n": int, "outliers": Series}}.
+        """
+        num = self.__df.select_dtypes(include="number")
+        if columnas:
+            num = num[[c for c in columnas if c in num.columns]]
+        if num.empty:
+            return {}
+
+        resultados = {}
+        for col in num.columns:
+            s = num[col].dropna()
+            if len(s) < 2:
+                continue
+            media = s.mean()
+            std = s.std()
+            if std == 0:
+                continue
+            z = (s - media) / std
+            mask = z.abs() > umbral
+            n_out = mask.sum()
+            pct = n_out / len(s) * 100
+            resultados[col] = {
+                "n": int(n_out),
+                "pct": round(pct, 2),
+                "umbral": umbral,
+                "outliers": s[mask],
+            }
+        return resultados
+
+    def grafico_outliers_iqr_fig(self, resultados_iqr, max_cols=12):
+        """Genera figura con boxplots resaltando límites IQR."""
+        cols_con_outliers = [c for c, r in resultados_iqr.items() if r["n"] > 0]
+        if not cols_con_outliers:
+            return None
+        cols_plot = cols_con_outliers[:max_cols]
+        n = len(cols_plot)
+        fig, axes = self._grid(n, columnas=4, size=(4, 3))
+        for i, col in enumerate(cols_plot):
+            r = resultados_iqr[col]
+            s = self.__df[col].dropna()
+            ax = axes[i]
+            ax.boxplot(s, vert=False, patch_artist=True,
+                       boxprops=dict(facecolor="#4f8bf9", alpha=0.6))
+            ax.axvline(r["limite_inf"], color="#ff4b6e", linestyle="--", alpha=0.7, label=f"IQR inf")
+            ax.axvline(r["limite_sup"], color="#ff4b6e", linestyle="--", alpha=0.7, label=f"IQR sup")
+            ax.set_title(f"{col} ({r['n']} outliers)", fontsize=9)
+            ax.set_yticks([])
+            ax.grid(True, alpha=0.2)
+        for j in range(i + 1, len(axes)):
+            fig.delaxes(axes[j])
+        plt.tight_layout()
+        return fig
+
+    # ── Correlación de Spearman ───────────────────────────────────────────────
+    def correlacion_spearman_fig(self):
+        """Genera heatmap de correlación de Spearman."""
+        num = self.__df.select_dtypes(include="number")
+        if num.empty:
+            return None
+        corr = num.corr(method="spearman")
+        fig, ax = plt.subplots(figsize=(10, 7), dpi=120)
+        cmap = sns.diverging_palette(240, 10, as_cmap=True).reversed()
+        sns.heatmap(corr, vmin=-1, vmax=1, cmap=cmap, annot=True, fmt=".2f",
+                    linewidths=0.5, linecolor='white', square=True,
+                    cbar_kws={"shrink": 0.8, "label": "Correlación"},
+                    annot_kws={"size": 9}, ax=ax)
+        ax.set_title("Mapa de Calor - Correlación de Spearman", fontsize=14)
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+        plt.tight_layout()
+        return fig
+
     # ── Helpers internos de grid ─────────────────────────────────────────────
     def _grid(self, n, columnas=3, size=(5, 4)):
         filas = math.ceil(n / columnas)
@@ -352,7 +544,14 @@ class analisisEDA():
 
         nombres_target = {"target", "label", "labels", "class", "classes", "clase",
                           "y", "objetivo", "outcome", "diagnosis", "result",
-                          "resultado", "categoria", "category"}
+                          "resultado", "categoria", "category", "precio", "price",
+                          "cost", "costo", "amount", "monto", "valor", "value",
+                          "salary", "salario", "income", "ingreso"}
+
+        # Palabras que indican que una columna podría ser un target numérico
+        palabras_target_numerico = {"precio", "price", "cost", "costo", "amount",
+                                    "monto", "valor", "value", "salary", "salario",
+                                    "income", "ingreso", "purchase", "venta", "sales"}
 
         candidatos = []
         for col in df.columns:
@@ -364,16 +563,20 @@ class analisisEDA():
             es_categorica = (not es_numerica) or (n_unicos <= umbral_clases and serie.dtype.kind in "iub")
             nombre_match = col.lower().strip() in nombres_target
 
+            col_lower = col.lower().strip()
+            nombre_parcial = any(p in col_lower for p in palabras_target_numerico)
+
             candidatos.append({
                 "columna": col,
                 "n_unicos": int(n_unicos),
                 "es_numerica": bool(es_numerica),
                 "es_categorica_likely": bool(es_categorica),
                 "nombre_match": bool(nombre_match),
+                "nombre_parcial": bool(nombre_parcial),
                 "posicion": list(df.columns).index(col),
             })
 
-        # 1) Match por nombre típico de target
+        # 1) Match exacto por nombre típico de target
         por_nombre = [c for c in candidatos if c["nombre_match"]]
         if por_nombre:
             elegido = por_nombre[0]
@@ -388,16 +591,47 @@ class analisisEDA():
                              f"numérica continua → regresión.",
                     "candidatos": candidatos}
 
+        # 1b) Match parcial: nombre contiene palabra de target numérico
+        por_parcial = [c for c in candidatos if c["nombre_parcial"] and c["es_numerica"]]
+        if por_parcial:
+            elegido = por_parcial[0]
+            col = elegido["columna"]
+            return {"tipo": "regresion", "target_sugerido": col,
+                    "razon": f"Columna '{col}' contiene una palabra clave de target "
+                             f"numérico → regresión.",
+                    "candidatos": candidatos}
+
         # 2) Última columna como convención ML
         if candidatos:
             ultima = candidatos[-1]
             col = ultima["columna"]
+
+            # Si la última columna parece una característica (pocos valores enteros pequeños),
+            # no sugerirla como target — buscar otros candidatos en su lugar
+            if _es_columna_feature(ultima, df):
+                otros = [c for c in candidatos[:-1] if c["es_numerica"] and c["n_unicos"] > umbral_clases]
+                if otros:
+                    c = next((x for x in reversed(otros) if x["nombre_parcial"]), otros[-1])
+                    return {"tipo": "regresion", "target_sugerido": c["columna"],
+                            "razon": f"La última columna '{col}' parece una característica "
+                                     f"(pocos valores enteros). Sugerimos '{c['columna']}' "
+                                     f"como target numérico → regresión.",
+                            "candidatos": candidatos}
+
+            # Intentar limpiar formato moneda ($ ,) y reevaluar
+            serie_clean = df[col].dropna().astype(str).str.replace(r'[\$,]', '', regex=True)
+            es_numerica_clean = pd.api.types.is_numeric_dtype(pd.to_numeric(serie_clean, errors='coerce'))
+            if not ultima["es_numerica"] and es_numerica_clean and ultima["n_unicos"] > umbral_clases:
+                return {"tipo": "regresion", "target_sugerido": col,
+                        "razon": f"La última columna '{col}' parece numérica (formato moneda) con "
+                                 f"{ultima['n_unicos']} valores únicos → regresión.",
+                        "candidatos": candidatos}
             if not ultima["es_numerica"] or (ultima["n_unicos"] <= umbral_clases
                                               and ultima["n_unicos"] >= 2):
-                tipo = "clasificacion"
+                tipo = "clasificacion" if ultima["n_unicos"] <= 50 else "no_supervisado"
                 razon = (f"La última columna '{col}' tiene {ultima['n_unicos']} valores "
-                         f"únicos → probable target categórico (clasificación).")
-                return {"tipo": tipo, "target_sugerido": col,
+                         f"únicos → {tipo}.")
+                return {"tipo": tipo, "target_sugerido": col if tipo == "clasificacion" else None,
                         "razon": razon, "candidatos": candidatos}
             if ultima["es_numerica"] and ultima["n_unicos"] > umbral_clases:
                 return {"tipo": "regresion", "target_sugerido": col,
@@ -410,3 +644,16 @@ class analisisEDA():
                 "razon": "No se detectó una columna objetivo clara. Sugerencia: "
                          "análisis exploratorio o clustering.",
                 "candidatos": candidatos}
+
+
+def _es_columna_feature(col_info, df):
+    """True si la columna parece una característica (feature) en lugar de un target.
+    Aplica a columnas numéricas con ≤5 valores enteros pequeños (0-10)."""
+    if col_info["n_unicos"] > 5:
+        return False
+    if not col_info["es_numerica"]:
+        return False
+    serie = df[col_info["columna"]].dropna()
+    if serie.dtype.kind not in "iub":
+        return False
+    return bool(serie.between(0, 10).all())

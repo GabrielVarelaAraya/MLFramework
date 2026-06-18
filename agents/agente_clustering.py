@@ -48,6 +48,11 @@ class AgenteClustering:
             else resultado["X"]
         return Clustering.plot_silhouette_curve_fig(X, k_min, k_max, random_state)
 
+    def plot_codo(self, resultado, k_min=2, k_max=10, random_state=42):
+        X = resultado["X_proj"] if resultado["algoritmo"].lower() in ("t-sne", "umap") \
+            else resultado["X"]
+        return Clustering.plot_codo_fig(X, k_min, k_max, random_state)
+
     def plot_dendrograma(self, resultado, metodo="ward"):
         return Clustering.plot_dendrograma_fig(resultado["X"], metodo=metodo)
 

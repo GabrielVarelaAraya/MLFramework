@@ -256,6 +256,26 @@ class Clustering(NoSupervisado):
         return fig, best_k, max(scores)
 
     @staticmethod
+    def plot_codo_fig(X, k_min=2, k_max=10, random_state=42):
+        """Método del codo basado en inercia de K-Means."""
+        ks = list(range(k_min, min(k_max + 1, len(X))))
+        inercias = []
+        for k in ks:
+            model = KMeans(n_clusters=k, random_state=random_state, n_init=10)
+            model.fit(X)
+            inercias.append(model.inertia_)
+
+        fig, ax = plt.subplots(figsize=(8, 4), dpi=120)
+        ax.plot(ks, inercias, marker="o", color="#ff6b35", linewidth=2.5, markersize=8)
+        ax.fill_between(ks, inercias, alpha=0.15, color="#ff6b35")
+        ax.set_xlabel("Número de clusters (k)")
+        ax.set_ylabel("Inercia")
+        ax.set_title("Método del Codo — Inercia vs k")
+        ax.grid(True, alpha=0.2)
+        plt.tight_layout()
+        return fig, ks, inercias
+
+    @staticmethod
     def plot_dendrograma_fig(X, metodo="ward", etiquetas=None):
         Z = linkage(X, method=metodo, metric='euclidean')
         fig, ax = plt.subplots(figsize=(12, 6), dpi=120)
