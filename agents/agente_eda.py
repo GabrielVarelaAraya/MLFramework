@@ -59,3 +59,31 @@ class AgenteEDA:
     def histograma_clase(self, columna_objetivo):
         """Genera histograma de distribución de clases."""
         return self._backend.histogramaClase_fig(columna_objetivo)
+
+    # ── Estadísticas avanzadas ────────────────────────────────────────────────
+    def analisis_estadistico(self):
+        """Retorna dict con media, mediana, moda, varianza, desv_std, min, max por columna."""
+        return self._backend.analisis_estadistico_dict()
+
+    # ── Registros inconsistentes ──────────────────────────────────────────────
+    def detectar_inconsistencias(self):
+        """Busca valores negativos en columnas positivas, columnas constantes, desbalance extremo."""
+        return self._backend.detectar_inconsistencias()
+
+    # ── Outliers ──────────────────────────────────────────────────────────────
+    def detectar_outliers_iqr(self, columnas=None):
+        """Detecta outliers usando el método IQR. Retorna dict con resultados por columna."""
+        return self._backend.detectar_outliers_iqr(columnas=columnas)
+
+    def detectar_outliers_zscore(self, columnas=None, umbral=3):
+        """Detecta outliers usando Z-Score. Retorna dict con resultados por columna."""
+        return self._backend.detectar_outliers_zscore(columnas=columnas, umbral=umbral)
+
+    def grafico_outliers_iqr(self, resultados_iqr, max_cols=12):
+        """Genera figura con boxplots y límites IQR."""
+        return self._backend.grafico_outliers_iqr_fig(resultados_iqr, max_cols=max_cols)
+
+    # ── Correlación Spearman ──────────────────────────────────────────────────
+    def grafico_correlacion_spearman(self):
+        """Genera heatmap de correlación de Spearman."""
+        return self._backend.correlacion_spearman_fig()

@@ -119,8 +119,9 @@ Técnicas avanzadas de clustering y reducción de dimensionalidad.
 
 **Algoritmos:**
 - K-Means
-- K-Medoids
+- K-Medoids (PAM)
 - HAC (Ward, Average, Single, Complete)
+- DBSCAN
 
 **Reducción de dimensionalidad:**
 - PCA
@@ -143,13 +144,30 @@ seaborn                # Statistical visualizations
 scikit-learn           # ML algorithms
 prince                 # Categorical encoding
 umap-learn             # UMAP algorithm
-scikit-learn-extra     # K-Medoids and other extras
 numpy                  # Numerical computing
+scipy                  # Scientific computing
 ```
+
+> **Opcional:** `scikit-learn-extra` acelera K-Medoids. Si no está instalado, el
+> framework usa un respaldo nativo equivalente (algoritmo PAM), por lo que
+> K-Medoids funciona igual sin esa dependencia. No tiene wheels para Python
+> 3.12+, por eso se deja comentado en `requirements.txt`.
+
+## Requisitos
+
+- **Python 3.12** (versión recomendada para ejecutar el proyecto).
 
 ## Instalación
 
 ```bash
+# 1. Crear y activar un entorno virtual con Python 3.12
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# Linux / macOS
+source .venv/bin/activate
+
+# 2. Instalar dependencias
 pip install -r requirements.txt
 ```
 

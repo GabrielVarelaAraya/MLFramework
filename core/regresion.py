@@ -10,6 +10,7 @@ from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import xgboost as xgb
 
 
 class Regresion(Supervisado):
@@ -22,12 +23,15 @@ class Regresion(Supervisado):
     def _errores(y_true, y_pred):
         y_true = np.array(y_true)
         y_pred = np.array(y_pred)
-        rmse = math.sqrt(mean_squared_error(y_true, y_pred))
+        mse = mean_squared_error(y_true, y_pred)
+        rmse = math.sqrt(mse)
         mae = mean_absolute_error(y_true, y_pred)
         denom = np.sum(np.abs(y_true))
         er = np.sum(np.abs(y_true - y_pred)) / denom if denom else float('nan')
         r2 = r2_score(y_true, y_pred)
-        return {"RMSE": rmse, "MAE": mae, "ER": er, "R2": r2}
+        mask = y_true != 0
+        mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100 if mask.any() else float('nan')
+        return {"MSE": mse, "RMSE": rmse, "MAE": mae, "MAPE": mape, "ER": er, "R2": r2}
 
     # ── Modelos individuales (X_train, X_test, y_train, y_test) ──────────────
     def RegLinSimp(self, X_train, X_test, y_train, y_test):
@@ -84,11 +88,19 @@ class Regresion(Supervisado):
         preds = modelo.predict(X_test)
         return modelo, preds, self._errores(y_test, preds)
 
-    def XGBoostingReg(self, X_train, X_test, y_train, y_test, n_estimators=500,
-                      max_depth=4, min_samples_split=5, random_state=42):
+    def GradBoostingReg(self, X_train, X_test, y_train, y_test, n_estimators=100,
+                        max_depth=4, min_samples_split=5, random_state=42):
         modelo = GradientBoostingRegressor(n_estimators=n_estimators, max_depth=max_depth,
                                            min_samples_split=min_samples_split,
                                            random_state=random_state)
+        modelo.fit(X_train, y_train)
+        preds = modelo.predict(X_test)
+        return modelo, preds, self._errores(y_test, preds)
+
+    def XGBoostReg(self, X_train, X_test, y_train, y_test, n_estimators=100,
+                   max_depth=3, learning_rate=0.1, random_state=42):
+        modelo = xgb.XGBRegressor(n_estimators=n_estimators, max_depth=max_depth,
+                                  learning_rate=learning_rate, random_state=random_state)
         modelo.fit(X_train, y_train)
         preds = modelo.predict(X_test)
         return modelo, preds, self._errores(y_test, preds)
@@ -104,8 +116,12 @@ class Regresion(Supervisado):
         if a in ("lineal multiple", "regresión lineal múltiple", "regresion lineal multiple", "linear"):
             mdl, preds, err = self.RegLinMult(X_train, X_test, y_train, y_test)
         elif a in ("lasso",):
+            mdl, preds, err = self.RegLasso(X_train, X_test, y_train, y_test, alpha=params.get("alpha", 0.1))
+        elif a in ("lassocv", "lasso cv"):
             mdl, preds, err = self.RegLassoCV(X_train, X_test, y_train, y_test)
         elif a in ("ridge",):
+            mdl, preds, err = self.RegRidge(X_train, X_test, y_train, y_test, alpha=params.get("alpha", 1.0))
+        elif a in ("ridgecv", "ridge cv"):
             mdl, preds, err = self.RegRidgeCV(X_train, X_test, y_train, y_test)
         elif a in ("svm",):
             mdl, preds, err = self.SVM(X_train, X_test, y_train, y_test,
@@ -119,11 +135,17 @@ class Regresion(Supervisado):
                                                    n_estimators=params.get("n_estimators", 100),
                                                    max_depth=params.get("max_depth", 5),
                                                    random_state=random_state)
-        elif a in ("gradient boosting", "xg", "xgboost"):
-            mdl, preds, err = self.XGBoostingReg(X_train, X_test, y_train, y_test,
-                                                 n_estimators=params.get("n_estimators", 100),
-                                                 max_depth=params.get("max_depth", 4),
-                                                 random_state=random_state)
+        elif a in ("gradient boosting", "gradientboosting"):
+            mdl, preds, err = self.GradBoostingReg(X_train, X_test, y_train, y_test,
+                                                   n_estimators=params.get("n_estimators", 100),
+                                                   max_depth=params.get("max_depth", 4),
+                                                   random_state=random_state)
+        elif a in ("xgb", "xgboost"):
+            mdl, preds, err = self.XGBoostReg(X_train, X_test, y_train, y_test,
+                                              n_estimators=params.get("n_estimators", 100),
+                                              max_depth=params.get("max_depth", 3),
+                                              learning_rate=params.get("learning_rate", 0.1),
+                                              random_state=random_state)
         else:
             raise ValueError(f"Algoritmo desconocido: {algoritmo}")
 
@@ -135,14 +157,16 @@ class Regresion(Supervisado):
             "metricas": err,
             "r2": err["R2"],
             "rmse": err["RMSE"],
+            "mse": err["MSE"],
             "mae": err["MAE"],
+            "mape": err["MAPE"],
         }
 
     def comparar_todos(self, target, params=None, test_size=0.25, random_state=42):
         import traceback
         params = params or {}
-        algoritmos = ["Regresión Lineal Múltiple", "Lasso", "Ridge", "SVM",
-                      "Árbol de Decisión", "Random Forest", "Gradient Boosting"]
+        algoritmos = ["Regresión Lineal Múltiple", "Lasso", "LassoCV", "Ridge", "RidgeCV",
+                      "SVM", "Árbol de Decisión", "Random Forest", "XGBoost", "Gradient Boosting"]
         resultados = []
         errores = []
         for alg in algoritmos:
@@ -163,7 +187,9 @@ class Regresion(Supervisado):
         tabla = pd.DataFrame([{
             "Modelo": r["modelo_nombre"],
             "R²": r["r2"],
+            "MSE": r["mse"],
             "RMSE": r["rmse"],
             "MAE": r["mae"],
+            "MAPE": r["mape"],
         } for r in resultados]).sort_values("R²", ascending=False).reset_index(drop=True)
         return resultados, tabla, errores

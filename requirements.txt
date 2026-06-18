@@ -3,7 +3,14 @@ pandas>=2.2.0
 matplotlib>=3.9.0
 seaborn>=0.13.2
 scikit-learn>=1.5.0
+xgboost>=2.0.0
 prince>=0.14.0
 umap-learn>=0.5.6
 numpy>=2.0.0
 scipy>=1.13.0
+
+# Opcional: acelera K-Medoids usando la implementación de scikit-learn-extra.
+# Si no se instala, el framework usa un respaldo nativo equivalente (PAM).
+# Nota: scikit-learn-extra no tiene wheels para Python 3.12+ y puede fallar
+# al compilar; por eso se deja comentado. Descoméntalo solo si tu entorno lo soporta.
+# scikit-learn-extra>=0.3.0

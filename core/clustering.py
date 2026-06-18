@@ -2,7 +2,7 @@ from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.metrics import (silhouette_score, calinski_harabasz_score,
-                             davies_bouldin_score)
+                             davies_bouldin_score, pairwise_distances)
 from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
@@ -23,6 +23,71 @@ except ImportError:
     _HAS_UMAP = False
 
 from core.no_supervisado import NoSupervisado
+
+
+class _KMedoidsFallback:
+    """K-Medoids (PAM, iteración de Voronoi) sin dependencias externas.
+
+    Se usa como respaldo cuando scikit-learn-extra no está instalado
+    (por ejemplo en Python 3.12+, donde esa librería no ofrece wheels y
+    suele fallar al compilar). Expone una API mínima compatible con
+    sklearn_extra.cluster.KMedoids: ``fit_predict``, ``labels_`` y
+    ``cluster_centers_``.
+    """
+
+    def __init__(self, n_clusters=3, metric="euclidean", random_state=42,
+                 max_iter=300, n_init=10):
+        self.n_clusters = n_clusters
+        self.metric = metric
+        self.random_state = random_state
+        self.max_iter = max_iter
+        self.n_init = n_init
+
+    def _una_corrida(self, D, n, rng):
+        medoides = rng.choice(n, self.n_clusters, replace=False)
+        labels = np.argmin(D[:, medoides], axis=1)
+        for _ in range(self.max_iter):
+            nuevos = medoides.copy()
+            for k in range(self.n_clusters):
+                miembros = np.where(labels == k)[0]
+                if len(miembros) == 0:
+                    continue
+                costos = D[np.ix_(miembros, miembros)].sum(axis=1)
+                nuevos[k] = miembros[int(np.argmin(costos))]
+            nuevas_labels = np.argmin(D[:, nuevos], axis=1)
+            if np.array_equal(nuevos, medoides):
+                break
+            medoides, labels = nuevos, nuevas_labels
+        # Costo total = suma de distancias de cada punto a su medoide
+        costo = D[np.arange(n), medoides[labels]].sum()
+        return medoides, labels, costo
+
+    def fit_predict(self, X):
+        X = np.asarray(X, dtype=float)
+        n = X.shape[0]
+        D = pairwise_distances(X, metric=self.metric)
+        rng = np.random.RandomState(self.random_state)
+
+        mejor = None
+        for _ in range(self.n_init):
+            medoides, labels, costo = self._una_corrida(D, n, rng)
+            if mejor is None or costo < mejor[2]:
+                mejor = (medoides, labels, costo)
+
+        medoides, labels, _ = mejor
+        self.medoid_indices_ = medoides
+        self.cluster_centers_ = X[medoides]
+        self.labels_ = labels
+        return labels
+
+
+def _crear_kmedoids(n_clusters, metric, random_state, max_iter=300):
+    """Devuelve KMedoids de scikit-learn-extra si está disponible; si no, el respaldo nativo."""
+    if _HAS_KMEDOIDS:
+        return KMedoids(n_clusters=n_clusters, metric=metric,
+                        random_state=random_state, max_iter=max_iter)
+    return _KMedoidsFallback(n_clusters=n_clusters, metric=metric,
+                             random_state=random_state, max_iter=max_iter)
 
 
 class Clustering(NoSupervisado):
@@ -52,10 +117,8 @@ class Clustering(NoSupervisado):
             centros = model.cluster_centers_
 
         elif algoritmo_lower == "kmedoids":
-            if not _HAS_KMEDOIDS:
-                raise ImportError("sklearn-extra no está instalado.")
-            model = KMedoids(n_clusters=n_clusters, metric=kwargs.get("metric", "cityblock"),
-                             random_state=random_state, max_iter=kwargs.get("max_iter", 500))
+            model = _crear_kmedoids(n_clusters, kwargs.get("metric", "euclidean"),
+                                    random_state, max_iter=kwargs.get("max_iter", 500))
             labels = model.fit_predict(X)
             centros = model.cluster_centers_
 
@@ -193,6 +256,26 @@ class Clustering(NoSupervisado):
         return fig, best_k, max(scores)
 
     @staticmethod
+    def plot_codo_fig(X, k_min=2, k_max=10, random_state=42):
+        """Método del codo basado en inercia de K-Means."""
+        ks = list(range(k_min, min(k_max + 1, len(X))))
+        inercias = []
+        for k in ks:
+            model = KMeans(n_clusters=k, random_state=random_state, n_init=10)
+            model.fit(X)
+            inercias.append(model.inertia_)
+
+        fig, ax = plt.subplots(figsize=(8, 4), dpi=120)
+        ax.plot(ks, inercias, marker="o", color="#ff6b35", linewidth=2.5, markersize=8)
+        ax.fill_between(ks, inercias, alpha=0.15, color="#ff6b35")
+        ax.set_xlabel("Número de clusters (k)")
+        ax.set_ylabel("Inercia")
+        ax.set_title("Método del Codo — Inercia vs k")
+        ax.grid(True, alpha=0.2)
+        plt.tight_layout()
+        return fig, ks, inercias
+
+    @staticmethod
     def plot_dendrograma_fig(X, metodo="ward", etiquetas=None):
         Z = linkage(X, method=metodo, metric='euclidean')
         fig, ax = plt.subplots(figsize=(12, 6), dpi=120)
@@ -210,7 +293,7 @@ class Clustering(NoSupervisado):
 
     def comparar_todos(self, n_clusters=3, columnas=None, normalizar=True, random_state=42):
         """Compara todos los algoritmos disponibles."""
-        algoritmos = ["KMeans", "HAC"]
+        algoritmos = ["KMeans", "KMedoids", "HAC"]
         if _HAS_UMAP:
             algoritmos.append("UMAP")
 
